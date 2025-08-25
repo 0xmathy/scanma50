@@ -1,1 +1,59 @@
-{ "updated_at": "2025-08-23T08:00:00+02:00", "tokens": [] }
+{
+  "updated_at": "2025-08-23T08:00:00+02:00",
+  "tokens": [
+    {
+      "symbol": "MORPH",
+      "venue": "MEXC",
+      "price": 2.45,
+      "d24": 12,
+      "d7": 35,
+      "d30": 80,
+      "mc": 250000000,
+      "tvl": null,
+      "mc_tvl": null,
+      "vol_mc_24": 8,
+      "vol7_mc": 7,
+      "var_vol_7_over_30": 1.4,
+      "rsi_d": 63,
+      "rsi_h4": 58,
+      "ath": 7.8,
+      "ath_mult": 3.2
+    },
+    {
+      "symbol": "ATH",
+      "venue": "MEXC",
+      "price": 0.0325,
+      "d24": 7,
+      "d7": 15,
+      "d30": 40,
+      "mc": 120000000,
+      "tvl": 40000000,
+      "mc_tvl": 3.0,
+      "vol_mc_24": 5,
+      "vol7_mc": 4,
+      "var_vol_7_over_30": 1.2,
+      "rsi_d": 52,
+      "rsi_h4": 55,
+      "ath": 0.095,
+      "ath_mult": 2.9
+    },
+    {
+      "symbol": "AVAX",
+      "venue": "Binance",
+      "price": 22.74,
+      "d24": 4,
+      "d7": 9,
+      "d30": -6,
+      "mc": 8000000000,
+      "tvl": 1100000000,
+      "mc_tvl": 7.3,
+      "vol_mc_24": 3,
+      "vol7_mc": 2,
+      "var_vol_7_over_30": 0.9,
+      "rsi_d": 57,
+      "rsi_h4": 62,
+      "ath": 146.22,
+      "ath_mult": 6.4
+    }
+  ]
+}
