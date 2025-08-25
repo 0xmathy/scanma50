@@ -1,0 +1,38 @@
+name: Daily snapshot (Sheet → data.json)
+
+on:
+  schedule:
+    - cron: "0 6 * * *"   # 06:00 UTC ≈ 08:00 Paris
+  workflow_dispatch: {}
+
+permissions:
+  contents: write   # autorise le commit/push via GITHUB_TOKEN
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Diagnostics — show tree
+        run: |
+          pwd
+          ls -la
+
+      - name: Generate data.json from Google Sheet
+        run: node fetch_and_build.js
+
+      - name: Commit & push updated data.json
+        uses: stefanzweifel/git-auto-commit-action@v5
+        with:
+          commit_message: "chore: daily snapshot (Sheet → data.json)"
+          file_pattern: data.json
