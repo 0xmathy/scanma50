@@ -1,0 +1,394 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Screener — Scan MA50 v1.2 (maquette, popover global)</title>
+<style>
+  :root{
+    --bg:#0b0d12;--panel:#0f1320;--panel-2:#121727;--text:#e6edf3;--muted:#9aa4b2;--green:#29d397;--red:#ff6b6b;--amber:#ffc857;--blue:#6aa7ff;--card:#0c111b;--outline:#1e2a44;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:linear-gradient(180deg,#0a0d16,#0b0d12);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,Cantarell,Noto Sans,Helvetica Neue,Arial,Apple Color Emoji,Segoe UI Emoji}
+  .wrap{max-width:1200px;margin:32px auto;padding:0 16px}
+  header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px}
+  .title{font-weight:700;font-size:22px;letter-spacing:.2px}
+  .toolbar{display:flex;gap:10px;flex-wrap:wrap}
+  .toolbar input,.toolbar select{background:var(--panel-2);color:var(--text);border:1px solid var(--outline);border-radius:10px;padding:8px 10px}
+  .note{color:var(--muted);font-size:12px;margin-top:4px}
+
+  .table-wrap{background:var(--panel);border:1px solid var(--outline);border-radius:14px;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.35)}
+  table{width:100%;border-collapse:separate;border-spacing:0}
+  thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));color:#cfe0ff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:12px 10px;cursor:pointer}
+  tbody td{padding:12px 10px;border-bottom:1px solid #0f1422}
+  tbody tr:hover{background:rgba(255,255,255,.03)}
+  .token{display:flex;align-items:center;gap:10px}
+  .logo{width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#1e2440,#2c3f6b)}
+  .sym{font-weight:700}
+  .muted{color:var(--muted)}
+  .num{font-variant-numeric:tabular-nums}
+  .pos{color:var(--green)}
+  .neg{color:var(--red)}
+
+  /* thresholds */
+  .t-good{color:var(--green)}
+  .t-warn{color:var(--amber)}
+  .t-bad{color:var(--red)}
+
+  /* score/ratio bars */
+  .bar{height:6px;background:#0e1422;border-radius:999px;overflow:hidden}
+  .bar > span{display:block;height:100%;background:linear-gradient(90deg,#74caff,#29d397)}
+
+  /* Global popover */
+  #popover{position:fixed;left:0;top:0;transform:translate(-9999px,-9999px);min-width:560px;max-width:620px;border:1px solid var(--outline);background:var(--card);border-radius:14px;box-shadow:0 20px 40px rgba(0,0,0,.55);padding:14px;z-index:1000;pointer-events:auto;display:none}
+  #popover .hover-grid{display:grid;grid-template-columns:1.1fr 1fr;gap:12px}
+  #popover h4{margin:0 0 8px 0;font-size:14px}
+  #popover .kv{display:grid;grid-template-columns:1fr auto;gap:6px;font-size:13px}
+  #popover .sep{height:1px;background:var(--outline);margin:8px 0}
+  #popover .links{display:flex;gap:10px;flex-wrap:wrap}
+  #popover .links a{color:#9ec5ff;text-decoration:none}
+  #popover .hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:6px}
+  #popover .lock{font-size:12px;color:var(--muted);cursor:pointer;border:1px solid var(--outline);border-radius:8px;padding:4px 8px;background:var(--panel-2)}
+  #popover.locked .lock{color:#fff;border-color:#2e7;box-shadow:inset 0 0 0 1px #2e7}
+
+  /* Responsive */
+  @media (max-width: 820px){
+    #popover{left:12px !important;right:12px;top:auto;bottom:12px;min-width:unset;max-width:unset;transform:none}
+    thead .hide-sm, tbody .hide-sm{display:none}
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="title">Scan MA50 v1.2 — Screener (popover global)</div>
+      <div class="toolbar">
+        <input id="search" placeholder="Rechercher un token…" />
+        <select id="filter-mcvt">
+          <option value="">MC/TVL — Tous</option>
+          <option value="lt3">≤ 3 (value)</option>
+          <option value="3to8">3–8</option>
+          <option value="gt8">> 8</option>
+        </select>
+        <select id="filter-rsi">
+          <option value="">RSI Daily — Tous</option>
+          <option value="accum">45–60</option>
+          <option value="hot">> 70</option>
+          <option value="cold">< 35</option>
+        </select>
+      </div>
+    </header>
+    <div class="note">Données illustratives (mock). La version branchée affichera les valeurs CMC/DeFiLlama réelles. Popover: délai, verrou au clic, seuils de couleur activés.</div>
+
+    <div class="table-wrap">
+      <table id="screener">
+        <thead>
+          <tr>
+            <th data-sort="token">Token</th>
+            <th data-sort="price">Prix</th>
+            <th data-sort="d24">Δ24h</th>
+            <th data-sort="d7">Δ7j</th>
+            <th class="hide-sm" data-sort="d30">Δ30j</th>
+            <th data-sort="mc">MC</th>
+            <th data-sort="tvl">TVL</th>
+            <th data-sort="mctvl">MC/TVL</th>
+            <th class="hide-sm" data-sort="volmc">Vol/MC (24h)</th>
+            <th class="hide-sm" data-sort="vol7mc">Moy Vol7j/MC</th>
+            <th data-sort="varvol">Var Vol 7j/30j</th>
+            <th data-sort="rsid">RSI D</th>
+            <th class="hide-sm" data-sort="rsih4">RSI H4</th>
+            <th class="hide-sm" data-sort="ath">ATH</th>
+            <th data-sort="pot">Potentiel x</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- rows carry data-* for thresholds & popover content -->
+          <tr data-token="MORPH · MEXC" data-price="$2.45" data-mc="$250M" data-fdv="—" data-ath="$7.80 (−69%)" data-pot="x3.2" data-volmc="8%" data-vol7mc="7%" data-rsid="63" data-rsih4="58" data-narr="—" data-launch="—" data-comp="—" data-audits="—" data-unlock="—" data-links="Site,Docs,GitHub,X,CMC,DeFiLlama" data-mctvl="" data-tvl="N/D" data-rsi-band="accum">
+            <td><div class="token"><div class="logo"></div><div><span class="sym">MORPH</span><span class="muted"> · MEXC</span></div></div></td>
+            <td class="num">$2.45</td>
+            <td class="num pos">+12%</td>
+            <td class="num pos">+35%</td>
+            <td class="num pos hide-sm">+80%</td>
+            <td class="num">$250M</td>
+            <td class="num">N/D</td>
+            <td class="num t-warn">—</td>
+            <td class="num hide-sm t-good">8%</td>
+            <td class="num hide-sm t-good">7%</td>
+            <td class="num">1.4×</td>
+            <td class="num t-warn">63</td>
+            <td class="num hide-sm t-good">58</td>
+            <td class="num hide-sm">$7.80</td>
+            <td class="num">x3.2</td>
+          </tr>
+          <tr data-token="ATH · MEXC" data-price="$0.0325" data-mc="$120M" data-fdv="—" data-ath="$0.095 (−66%)" data-pot="x2.9" data-volmc="5%" data-vol7mc="4%" data-rsid="52" data-rsih4="55" data-narr="—" data-launch="—" data-comp="—" data-audits="—" data-unlock="—" data-links="Site,CMC,DeFiLlama" data-mctvl="3.0" data-tvl="$40M" data-rsi-band="accum">
+            <td><div class="token"><div class="logo"></div><div><span class="sym">ATH</span><span class="muted"> · MEXC</span></div></div></td>
+            <td class="num">$0.0325</td>
+            <td class="num pos">+7%</td>
+            <td class="num pos">+15%</td>
+            <td class="num pos hide-sm">+40%</td>
+            <td class="num">$120M</td>
+            <td class="num">$40M</td>
+            <td class="num t-good">3.0</td>
+            <td class="num hide-sm t-good">5%</td>
+            <td class="num hide-sm t-warn">4%</td>
+            <td class="num">1.2×</td>
+            <td class="num t-good">52</td>
+            <td class="num hide-sm t-good">55</td>
+            <td class="num hide-sm">$0.095</td>
+            <td class="num">x2.9</td>
+          </tr>
+          <tr data-token="AVAX · Binance" data-price="$22.74" data-mc="$8.0B" data-fdv="—" data-ath="$146.22 (−84%)" data-pot="x6.4" data-volmc="3%" data-vol7mc="2%" data-rsid="57" data-rsih4="62" data-narr="L1 / DeFi" data-launch="—" data-comp="OP, SOL, ETH L2" data-audits="—" data-unlock="—" data-links="Site,Docs,X,DeFiLlama" data-mctvl="7.3" data-tvl="$1.10B" data-rsi-band="accum">
+            <td><div class="token"><div class="logo"></div><div><span class="sym">AVAX</span><span class="muted"> · Binance</span></div></div></td>
+            <td class="num">$22.74</td>
+            <td class="num pos">+4%</td>
+            <td class="num pos">+9%</td>
+            <td class="num neg hide-sm">−6%</td>
+            <td class="num">$8.0B</td>
+            <td class="num">$1.10B</td>
+            <td class="num t-bad">7.3</td>
+            <td class="num hide-sm t-warn">3%</td>
+            <td class="num hide-sm">2%</td>
+            <td class="num">0.9×</td>
+            <td class="num t-good">57</td>
+            <td class="num hide-sm t-warn">62</td>
+            <td class="num hide-sm">$146.22</td>
+            <td class="num">x6.4</td>
+          </tr>
+          <tr data-token="CRV · Binance" data-price="$0.8577" data-mc="$500M" data-fdv="$1.7B" data-ath="$6.00 (−85%)" data-pot="x7.0" data-volmc="6%" data-vol7mc="5%" data-rsid="48" data-rsih4="54" data-narr="DEX stables" data-launch="—" data-comp="Balancer, Convex" data-audits="Oui (hist.)" data-unlock="à vérifier" data-links="Site,Docs,X,DeFiLlama" data-mctvl="1.9" data-tvl="$260M" data-rsi-band="accum">
+            <td><div class="token"><div class="logo"></div><div><span class="sym">CRV</span><span class="muted"> · Binance</span></div></div></td>
+            <td class="num">$0.8577</td>
+            <td class="num pos">+5%</td>
+            <td class="num pos">+12%</td>
+            <td class="num neg hide-sm">−8%</td>
+            <td class="num">$500M</td>
+            <td class="num">$260M</td>
+            <td class="num t-good">1.9</td>
+            <td class="num hide-sm t-good">6%</td>
+            <td class="num hide-sm t-good">5%</td>
+            <td class="num">1.1×</td>
+            <td class="num">48</td>
+            <td class="num hide-sm t-good">54</td>
+            <td class="num hide-sm">$6.00</td>
+            <td class="num">x7.0</td>
+          </tr>
+          <tr data-token="ETC · Binance" data-price="$20.94" data-mc="$3.0B" data-fdv="—" data-ath="$167.00 (−87%)" data-pot="x8.0" data-volmc="2%" data-vol7mc="2%" data-rsid="59" data-rsih4="61" data-narr="PoW / L1" data-launch="—" data-comp="BTC, LTC" data-audits="N/A (L1)" data-unlock="—" data-links="Site" data-mctvl="" data-tvl="N/D" data-rsi-band="accum">
+            <td><div class="token"><div class="logo"></div><div><span class="sym">ETC</span><span class="muted"> · Binance</span></div></div></td>
+            <td class="num">$20.94</td>
+            <td class="num pos">+3%</td>
+            <td class="num pos">+6%</td>
+            <td class="num pos hide-sm">+2%</td>
+            <td class="num">$3.0B</td>
+            <td class="num">N/D</td>
+            <td class="num t-warn">—</td>
+            <td class="num hide-sm">2%</td>
+            <td class="num hide-sm">2%</td>
+            <td class="num">1.0×</td>
+            <td class="num t-good">59</td>
+            <td class="num hide-sm t-warn">61</td>
+            <td class="num hide-sm">$167.00</td>
+            <td class="num">x8.0</td>
+          </tr>
+          <tr data-token="OP · Binance" data-price="$0.7003" data-mc="$1.0B" data-fdv="—" data-ath="$3.30 (−79%)" data-pot="x4.7" data-volmc="4%" data-vol7mc="3%" data-rsid="50" data-rsih4="56" data-narr="L2" data-launch="—" data-comp="ARB" data-audits="Oui (core)" data-unlock="—" data-links="Site,Docs,X,DeFiLlama" data-mctvl="2.5" data-tvl="$400M" data-rsi-band="accum">
+            <td><div class="token"><div class="logo"></div><div><span class="sym">OP</span><span class="muted"> · Binance</span></div></div></td>
+            <td class="num">$0.7003</td>
+            <td class="num pos">+6%</td>
+            <td class="num pos">+10%</td>
+            <td class="num neg hide-sm">−12%</td>
+            <td class="num">$1.0B</td>
+            <td class="num">$400M</td>
+            <td class="num t-good">2.5</td>
+            <td class="num hide-sm t-warn">4%</td>
+            <td class="num hide-sm t-warn">3%</td>
+            <td class="num">0.9×</td>
+            <td class="num t-warn">50</td>
+            <td class="num hide-sm t-good">56</td>
+            <td class="num hide-sm">$3.30</td>
+            <td class="num">x4.7</td>
+          </tr>
+          <tr data-token="SNX · Crypto" data-price="$0.6451" data-mc="$150M" data-fdv="—" data-ath="$28.77 (−98%)" data-pot="x44.6" data-volmc="7%" data-vol7mc="6%" data-rsid="47" data-rsih4="52" data-narr="Perps/Derivatives" data-launch="—" data-comp="GMX,dYdX" data-audits="Oui (hist.)" data-unlock="—" data-links="Site,Docs,X,DeFiLlama" data-mctvl="1.7" data-tvl="$90M" data-rsi-band="cold">
+            <td><div class="token"><div class="logo"></div><div><span class="sym">SNX</span><span class="muted"> · Crypto</span></div></div></td>
+            <td class="num">$0.6451</td>
+            <td class="num pos">+9%</td>
+            <td class="num pos">+18%</td>
+            <td class="num pos hide-sm">+5%</td>
+            <td class="num">$150M</td>
+            <td class="num">$90M</td>
+            <td class="num t-good">1.7</td>
+            <td class="num hide-sm t-good">7%</td>
+            <td class="num hide-sm t-good">6%</td>
+            <td class="num">1.3×</td>
+            <td class="num t-warn">47</td>
+            <td class="num hide-sm t-good">52</td>
+            <td class="num hide-sm">$28.77</td>
+            <td class="num">x44.6</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Global Popover Element -->
+  <div id="popover" role="dialog" aria-hidden="true">
+    <div class="hdr">
+      <div id="p-title" style="font-weight:700"></div>
+      <button id="p-lock" class="lock" title="Verrouiller / déverrouiller">🔒 Verrouiller</button>
+    </div>
+    <div class="hover-grid">
+      <div>
+        <h4>📊 Marché</h4>
+        <div class="kv" id="p-market"></div>
+        <div class="sep"></div>
+        <h4>⚙️ Techniques</h4>
+        <div class="kv" id="p-tech"></div>
+      </div>
+      <div>
+        <h4>🧩 Fonda</h4>
+        <div class="kv" id="p-fonda"></div>
+        <div class="sep"></div>
+        <h4>🛡️ Sécurité & Tokenomics</h4>
+        <div class="kv" id="p-sec"></div>
+        <div class="sep"></div>
+        <div class="links" id="p-links"></div>
+      </div>
+    </div>
+  </div>
+
+<script>
+  // ===== Search & Sort =====
+  const search = document.getElementById('search');
+  const rows = Array.from(document.querySelectorAll('#screener tbody tr'));
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    rows.forEach(r => { r.style.display = r.innerText.toLowerCase().includes(q) ? '' : 'none'; });
+  });
+  const getCellVal=(tr, idx)=> tr.children[idx].innerText.replace(/[,$%x×%\s]/g,'');
+  const comparer=(idx)=> (a,b)=>{
+    const v1=getCellVal(a,idx), v2=getCellVal(b,idx);
+    const n1=parseFloat(v1), n2=parseFloat(v2);
+    if(!isNaN(n1) && !isNaN(n2)) return n1-n2; return v1.localeCompare(v2);
+  };
+  document.querySelectorAll('thead th').forEach((th, idx)=> th.addEventListener('click', ()=>{
+    const tbody=th.closest('table').querySelector('tbody');
+    Array.from(tbody.querySelectorAll('tr')).sort(comparer(idx)).forEach(tr=>tbody.appendChild(tr));
+  }));
+
+  // ===== Threshold coloring (MC/TVL, Vol/MC 24h, RSI D) =====
+  rows.forEach(r=>{
+    const mctvl = parseFloat((r.dataset.mctvl||'').toString());
+    const rsid = parseFloat(r.dataset.rsid||'');
+    const volmc = parseFloat((r.dataset.volmc||'').toString());
+    // MC/TVL
+    const mctvlCell = r.children[7];
+    if(!isNaN(mctvl)){
+      if(mctvl <= 3) mctvlCell.classList.add('t-good');
+      else if(mctvl <= 8) mctvlCell.classList.add('t-warn');
+      else mctvlCell.classList.add('t-bad');
+    }
+    // Vol/MC 24h (col 8 hidden on small)
+    const volCell = r.children[8];
+    if(volCell){
+      if(volmc >= 5) volCell.classList.add('t-good');
+      else if(volmc >= 2) volCell.classList.add('t-warn');
+      else volCell.classList.add('t-bad');
+    }
+    // RSI D (col 11)
+    const rsiCell = r.children[11];
+    if(!isNaN(rsid)){
+      if(rsid >= 70) rsiCell.classList.add('t-bad');
+      else if(rsid >= 45 && rsid <= 60) rsiCell.classList.add('t-good');
+      else rsiCell.classList.add('t-warn');
+    }
+  });
+
+  // ===== Global Popover (delay + lock + smart position) =====
+  const pop = document.getElementById('popover');
+  const pTitle = document.getElementById('p-title');
+  const pMarket = document.getElementById('p-market');
+  const pTech = document.getElementById('p-tech');
+  const pFonda = document.getElementById('p-fonda');
+  const pSec = document.getElementById('p-sec');
+  const pLinks = document.getElementById('p-links');
+  const pLockBtn = document.getElementById('p-lock');
+
+  let showTimer = null;
+  let locked = false;
+  function clearTimer(){ if(showTimer){ clearTimeout(showTimer); showTimer = null; } }
+  function hidePop(){ if(locked) return; pop.style.display='none'; pop.style.transform='translate(-9999px,-9999px)'; pop.setAttribute('aria-hidden','true'); }
+  function fillPop(r){
+    pTitle.textContent = r.dataset.token || '';
+    pMarket.innerHTML = `
+      <div>Prix</div><div class="num">${r.dataset.price||'—'}</div>
+      <div>MC</div><div class="num">${r.dataset.mc||'—'}</div>
+      ${r.dataset.tvl?`<div>TVL</div><div class="num">${r.dataset.tvl}</div>`:''}
+      ${r.dataset.mctvl?`<div>MC/TVL</div><div class="num">${r.dataset.mctvl}</div>`:''}
+      <div>ATH</div><div class="num">${r.dataset.ath||'—'}</div>
+      <div>Potentiel x</div><div class="num">${r.dataset.pot||'—'}</div>
+      <div>Vol/MC (24h)</div><div class="num">${r.dataset.volmc||'—'}</div>
+      <div>Moy Vol7j/MC</div><div class="num">${r.dataset.vol7mc||'—'}</div>`;
+    pTech.innerHTML = `
+      <div>RSI Daily / H4</div><div class="num">${r.dataset.rsid||'—'} / ${r.dataset.rsih4||'—'}</div>
+      <div>MA50</div><div class="num">—</div>`;
+    pFonda.innerHTML = `
+      <div>Narratif</div><div>${r.dataset.narr||'—'}</div>
+      <div>Date de lancement</div><div>${r.dataset.launch||'—'}</div>
+      <div>Compétiteurs</div><div>${r.dataset.comp||'—'}</div>`;
+    pSec.innerHTML = `
+      <div>Audits</div><div>${r.dataset.audits||'—'}</div>
+      <div>Unlock proche</div><div>${r.dataset.unlock||'—'}</div>
+      <div>FDV</div><div class="num">${r.dataset.fdv||'—'}</div>`;
+    // links
+    pLinks.innerHTML = '';
+    (r.dataset.links||'').split(',').filter(Boolean).forEach(label=>{
+      const a=document.createElement('a'); a.href="#"; a.textContent=label.trim(); pLinks.appendChild(a);
+    });
+  }
+  function positionPop(x, y){
+    const pad = 16; // padding from cursor
+    const rect = pop.getBoundingClientRect();
+    let left = x + pad; let top = y + pad;
+    if(left + rect.width > window.innerWidth - 8){ left = x - rect.width - pad; }
+    if(top + rect.height > window.innerHeight - 8){ top = y - rect.height - pad; }
+    pop.style.left = left + 'px';
+    pop.style.top = top + 'px';
+  }
+
+  rows.forEach(r=>{
+    r.addEventListener('mouseenter', (e)=>{
+      if(locked) return; clearTimer();
+      showTimer = setTimeout(()=>{
+        fillPop(r);
+        pop.style.display='block'; pop.style.transform='none'; pop.removeAttribute('aria-hidden');
+        positionPop(e.clientX, e.clientY);
+      }, 200); // delay 200ms
+    });
+    r.addEventListener('mousemove', (e)=>{
+      if(pop.style.display==='block' && !locked) positionPop(e.clientX, e.clientY);
+    });
+    r.addEventListener('mouseleave', ()=>{ if(!locked){ clearTimer(); hidePop(); } });
+    r.addEventListener('click', ()=>{
+      // toggle lock on row click
+      locked = !locked;
+      pop.classList.toggle('locked', locked);
+      pLockBtn.textContent = locked ? '🔓 Déverrouiller' : '🔒 Verrouiller';
+      if(!locked) hidePop();
+    });
+  });
+
+  // lock button also toggles
+  pLockBtn.addEventListener('click', (e)=>{
+    e.stopPropagation();
+    locked = !locked;
+    pop.classList.toggle('locked', locked);
+    pLockBtn.textContent = locked ? '🔓 Déverrouiller' : '🔒 Verrouiller';
+    if(!locked) hidePop();
+  });
+
+  // click outside to close if locked
+  document.addEventListener('click', (e)=>{
+    if(locked && !pop.contains(e.target)){
+      locked = false; pop.classList.remove('locked'); pLockBtn.textContent = '🔒 Verrouiller'; hidePop();
+    }
+  });
+</script>
+</body>
+</html>
