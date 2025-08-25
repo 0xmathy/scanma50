@@ -6,33 +6,24 @@ on:
   workflow_dispatch: {}
 
 permissions:
-  contents: write   # autorise le commit/push via GITHUB_TOKEN
+  contents: write   # autorise le commit via GITHUB_TOKEN
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          persist-credentials: true
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, persist-credentials: true }
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+      - uses: actions/setup-node@v4
+        with: { node-version: "20" }
 
-      - name: Diagnostics — show tree
-        run: |
-          pwd
-          ls -la
-
-      - name: Generate data.json from Google Sheet
+      - name: Generate data.json from Google Sheet (+CMC)
+        env:
+          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
         run: node fetch_and_build.js
 
-      - name: Commit & push updated data.json
-        uses: stefanzweifel/git-auto-commit-action@v5
+      - uses: stefanzweifel/git-auto-commit-action@v5
         with:
           commit_message: "chore: daily snapshot (Sheet → data.json)"
           file_pattern: data.json
