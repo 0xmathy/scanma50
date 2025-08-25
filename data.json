@@ -1,5 +1,5 @@
 {
-  "updated_at": "2025-08-25T17:13:52.708Z",
+  "updated_at": "2025-08-25T17:29:34.524Z",
   "tokens": [
     {
       "symbol": "BABY",
@@ -17,7 +17,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "LA",
@@ -35,7 +40,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "LAYER",
@@ -53,7 +63,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "MOVE",
@@ -71,7 +86,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "TRUMP",
@@ -89,7 +109,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ACH",
@@ -107,7 +132,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ALGO",
@@ -125,7 +155,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "APT",
@@ -143,7 +178,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "AR",
@@ -161,7 +201,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ATOM",
@@ -179,7 +224,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "BAT",
@@ -197,7 +247,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "CHZ",
@@ -215,7 +270,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "CKB",
@@ -233,7 +293,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "COMP",
@@ -251,7 +316,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "DATA",
@@ -269,7 +339,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "DIA",
@@ -287,7 +362,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "DOGE",
@@ -305,7 +385,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "DOT",
@@ -323,7 +408,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "EGLD",
@@ -341,7 +431,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "EIGEN",
@@ -359,7 +454,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ENS",
@@ -377,7 +477,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ETHFI",
@@ -395,7 +500,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "GALA",
@@ -413,7 +523,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ICP",
@@ -431,7 +546,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "IMX",
@@ -449,7 +569,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "INJ",
@@ -467,7 +592,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "JTO",
@@ -485,7 +615,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "JUP",
@@ -503,7 +638,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "KMNO",
@@ -521,7 +661,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "LPT",
@@ -539,7 +684,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "NEAR",
@@ -557,7 +707,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ORCA",
@@ -575,7 +730,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ORDI",
@@ -593,7 +753,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "PYTH",
@@ -611,7 +776,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "RENDER",
@@ -629,7 +799,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "RLC",
@@ -647,7 +822,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ROSE",
@@ -665,7 +845,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "RSR",
@@ -683,7 +868,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "SAND",
@@ -701,7 +891,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "SCRT",
@@ -719,7 +914,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "SEI",
@@ -737,7 +937,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "SYRUP",
@@ -755,7 +960,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "THETA",
@@ -773,7 +983,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "TIA",
@@ -791,7 +1006,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "TRU",
@@ -809,7 +1029,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "VET",
@@ -827,7 +1052,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "W",
@@ -845,7 +1075,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ZRO",
@@ -863,7 +1098,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ZRX",
@@ -881,7 +1121,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "AI16Z",
@@ -899,7 +1144,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "AIXBT",
@@ -917,7 +1167,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "CGPT",
@@ -935,7 +1190,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "MELANIA",
@@ -953,7 +1213,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "ME",
@@ -971,7 +1236,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "PLUME",
@@ -989,7 +1259,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     },
     {
       "symbol": "VELODROME",
@@ -1007,7 +1282,12 @@
       "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
-      "ath_mult": null
+      "ath_mult": null,
+      "circulating_supply": null,
+      "total_supply": null,
+      "max_supply": null,
+      "fdv": null,
+      "rank": null
     }
   ]
 }
