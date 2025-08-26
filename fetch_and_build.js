@@ -1,6 +1,6 @@
 // fetch_and_build.js — Node 20
-// Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL auto-match) → CoinGecko (vols 7/30 + ATH)
-// Génère data.json pour ton site.
+// Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL auto-match, chain-first) → CoinGecko (vols 7/30 + ATH)
+// Génère data.json pour le front.
 
 const fs = require('fs');
 const path = require('path');
@@ -13,31 +13,29 @@ const CMC_API_KEY = process.env.CMC_API_KEY || '';
 const QUOTES = ['USDT','USDC','USD','BTC','ETH','EUR','DAI'];
 const SEP_RE = /[:\-_/]/;
 
-// --------- CoinGecko overrides (pour mieux matcher) ----------
+/* ---------- CoinGecko overrides (améliore la couverture ATH/volumes) ---------- */
 const GECKO_OVERRIDES = {
-  AVAX: 'avalanche-2',
-  OP:   'optimism',
-  ETC:  'ethereum-classic',
-  CRV:  'curve-dao-token',
-  SNX:  'synthetix-network-token',
-  MORPHO: 'morpho-token',
-  ATH:  'aethir' // retire si ce n'est pas le bon "ATH"
+  BTC:'bitcoin', ETH:'ethereum', BNB:'binancecoin', SOL:'solana', ADA:'cardano', XRP:'ripple',
+  DOT:'polkadot', LINK:'chainlink', MATIC:'polygon', POL:'polygon', AVAX:'avalanche-2',
+  OP:'optimism', ARB:'arbitrum', ATOM:'cosmos', ETC:'ethereum-classic', NEAR:'near',
+  APT:'aptos', SUI:'sui', INJ:'injective-protocol', CRV:'curve-dao-token',
+  SNX:'synthetix-network-token', LDO:'lido-dao', AAVE:'aave', UNI:'uniswap', MKR:'maker',
+  RUNE:'thorchain', CAKE:'pancakeswap-token', GMX:'gmx', DYDX:'dydx-chain', STETH:'staked-ether',
+  MORPHO:'morpho-token',
+  ATH:'aethir' // retire/ajuste si ce n’est pas ton “ATH”
 };
 
-// --------- Aliases pour les CHAINES DeFiLlama (améliore le matching auto) ----------
+/* ---------- Aliases chaînes DeFiLlama (chain-first) ---------- */
 const CHAIN_ALIASES = {
-  ETH: 'Ethereum',
-  AVAX: 'Avalanche',
-  OP: 'Optimism',
-  BNB: 'BSC',
-  MATIC: 'Polygon',
-  POL: 'Polygon',
-  SOL: 'Solana',
-  ARB: 'Arbitrum',
-  ETC: 'Ethereum Classic',
+  ETH:'Ethereum', WETH:'Ethereum', STETH:'Ethereum',
+  AVAX:'Avalanche', OP:'Optimism', ARB:'Arbitrum', BNB:'BSC',
+  MATIC:'Polygon', POL:'Polygon', SOL:'Solana', ADA:'Cardano',
+  DOT:'Polkadot', NEAR:'Near', APT:'Aptos', SUI:'Sui',
+  ATOM:['Cosmos', 'Cosmos Hub', 'CosmosHub'], // on teste ces 3
+  ETC:'Ethereum Classic'
 };
 
-// ================= CSV & dates =================
+/* ================= CSV & dates ================= */
 function parseCSV(text){
   const rows=[]; let row=[], col='', inQ=false;
   for(let i=0;i<text.length;i++){
@@ -80,7 +78,7 @@ function isRecentDateKey(dateStr, days){
   return (Date.now() - d.getTime())/86400000 <= days;
 }
 
-// ================= HTTP helpers =================
+/* ================= HTTP helpers ================= */
 async function fetchTextWithRetry(url){
   const ua = {'User-Agent':'Mozilla/5.0'};
   for(let i=0;i<3;i++){
@@ -97,7 +95,7 @@ async function fetchTextWithRetry(url){
 }
 async function fetchJSON(url, init){ const r=await fetch(url, init); const j=await r.json(); if(!r.ok){ console.error('HTTP', r.status, r.statusText, j); throw new Error('Fetch failed'); } return j; }
 
-// ================= 1) Sheet → {symbol, alert_date} =================
+/* ================= 1) Sheet → {symbol, alert_date} ================= */
 async function readRecentFromSheet(){
   const csv = await fetchTextWithRetry(SHEET_CSV_URL);
   const rows = parseCSV(csv);
@@ -126,7 +124,7 @@ async function readRecentFromSheet(){
   return recent;
 }
 
-// ================= 2) CoinMarketCap (prix/MC/%) =================
+/* ================= 2) CoinMarketCap (prix/MC/%) ================= */
 async function cmcQuotesBySymbol(symbols){
   if(!CMC_API_KEY) return {};
   const headers = { 'X-CMC_PRO_API_KEY': CMC_API_KEY };
@@ -145,76 +143,75 @@ async function cmcQuotesBySymbol(symbols){
   return out;
 }
 
-// ================= 3) DeFiLlama AUTO-MATCH (TVL) =================
-// On récupère TOUTES les chaînes + TOUS les protocoles, puis on essaie de matcher par symbole/nom.
+/* ================= 3) DeFiLlama AUTO-MATCH (TVL) ================= */
 let LLAMA_PROTOCOLS = null;
 let LLAMA_CHAINS = null;
-
-function norm(s){ return String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'').trim(); }
+const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
 
 async function loadLlamaCatalogs(){
-  if(!LLAMA_PROTOCOLS){ LLAMA_PROTOCOLS = await fetchJSON('https://api.llama.fi/protocols'); }
-  if(!LLAMA_CHAINS){ LLAMA_CHAINS = await fetchJSON('https://api.llama.fi/chains'); }
+  if(!LLAMA_CHAINS)    LLAMA_CHAINS    = await fetchJSON('https://api.llama.fi/chains');
+  if(!LLAMA_PROTOCOLS) LLAMA_PROTOCOLS = await fetchJSON('https://api.llama.fi/protocols');
 }
-function bestProtocolMatch(symbol){
-  if(!Array.isArray(LLAMA_PROTOCOLS)) return null;
-  const SYM = symbol.toUpperCase();
-  const nSym = norm(symbol);
-
-  // 1) match exact sur .symbol
-  let candidates = LLAMA_PROTOCOLS.filter(p => (p.symbol||'').toUpperCase() === SYM);
-  // 2) sinon, match nom qui contient le symbole "normalisé"
-  if(candidates.length===0){
-    candidates = LLAMA_PROTOCOLS.filter(p => norm(p.name).includes(nSym));
-  }
-  if(candidates.length===0) return null;
-
-  // Choisir le plus pertinent : le plus gros TVL
-  candidates.sort((a,b)=> (b.tvl||0) - (a.tvl||0));
-  return candidates[0]; // { slug, name, tvl, symbol, ... }
-}
-function bestChainMatch(symbol){
+function pickChainForSymbol(symbol){
   if(!Array.isArray(LLAMA_CHAINS)) return null;
   const alias = CHAIN_ALIASES[symbol] || symbol;
-  const n = alias.toLowerCase();
-
-  // match exact par name (case-insensitive)
-  let c = LLAMA_CHAINS.find(ch => (ch.name||'').toLowerCase() === n);
-  if(c) return c;
-
-  // sinon, "name contient symbol"
-  c = LLAMA_CHAINS.find(ch => (ch.name||'').toLowerCase().includes(n));
-  return c || null;
+  const candidates = Array.isArray(alias) ? alias : [alias];
+  // 1) exact (case-insensitive)
+  for(const cand of candidates){
+    const c = LLAMA_CHAINS.find(ch => (ch.name||'').toLowerCase() === cand.toLowerCase());
+    if(c) return c;
+  }
+  // 2) includes
+  for(const cand of candidates){
+    const c = LLAMA_CHAINS.find(ch => (ch.name||'').toLowerCase().includes(cand.toLowerCase()));
+    if(c) return c;
+  }
+  return null;
+}
+function pickProtocolForSymbol(symbol){
+  if(!Array.isArray(LLAMA_PROTOCOLS)) return null;
+  const SYM = symbol.toUpperCase();
+  // 1) strict: symbol exact
+  let candidates = LLAMA_PROTOCOLS.filter(p => (p.symbol||'').toUpperCase() === SYM);
+  // 2) fallback: name contient le symbole normalisé (mais on exclut les trop éloignés via score simple)
+  if(candidates.length===0){
+    const ns = norm(symbol);
+    candidates = LLAMA_PROTOCOLS.filter(p => norm(p.name).includes(ns));
+  }
+  if(candidates.length===0) return null;
+  // Choix: plus gros TVL
+  candidates.sort((a,b)=> (b.tvl||0) - (a.tvl||0));
+  return candidates[0];
 }
 async function getTVLForSymbol(symbol){
   await loadLlamaCatalogs();
-
-  // Essai 1 : protocole
-  const proto = bestProtocolMatch(symbol);
+  // **CHAÎNE EN PREMIER** (évite des faux positifs genre ATOM → “hAtom Lending”)
+  const chain = pickChainForSymbol(symbol);
+  if(chain && typeof chain.tvl === 'number'){
+    return { tvl: chain.tvl, via: `chain:${chain.name}` };
+  }
+  // Sinon protocole
+  const proto = pickProtocolForSymbol(symbol);
   if(proto && proto.slug){
     try{
       const n = await fetchJSON('https://api.llama.fi/tvl/' + encodeURIComponent(proto.slug));
       if(typeof n === 'number') return { tvl: n, via: `protocol:${proto.slug}` };
     }catch(e){ /* ignore */ }
   }
-
-  // Essai 2 : chaîne
-  const chain = bestChainMatch(symbol);
-  if(chain && typeof chain.tvl === 'number'){
-    return { tvl: chain.tvl, via: `chain:${chain.name}` };
-  }
-
   return { tvl: null, via: null };
 }
 async function enrichWithAutoTVL(rows){
   for(const r of rows){
     const { tvl, via } = await getTVLForSymbol(r.symbol);
-    if(typeof tvl === 'number'){ r.tvl = tvl; if(r.mc) r.mc_tvl = r.mc / tvl; }
+    if(typeof tvl === 'number'){
+      r.tvl = tvl;
+      if(r.mc) r.mc_tvl = r.mc / tvl;
+    }
     r.tvl_source = via;
   }
 }
 
-// ================= 4) CoinGecko (volumes 7/30 & ATH) =================
+/* ================= 4) CoinGecko (volumes 7/30 & ATH) ================= */
 async function geckoFindId(symbol){
   if(GECKO_OVERRIDES[symbol]) return GECKO_OVERRIDES[symbol];
   try{
@@ -232,20 +229,27 @@ async function geckoMarketChart30d(id){
     return vols;
   }catch(e){ return []; }
 }
-function avg(arr){ if(!arr.length) return null; const s=arr.reduce((a,b)=>a+b,0); return s/arr.length; }
+const avg = arr => (!arr.length ? null : arr.reduce((a,b)=>a+b,0)/arr.length);
 async function enrichWithGecko(rows){
   const idsBySym={};
   for(const r of rows){ idsBySym[r.symbol] = await geckoFindId(r.symbol); }
   const idList = Object.values(idsBySym).filter(Boolean);
-  const chunks=[]; for(let i=0;i<idList.length;i+=200) chunks.push(idList.slice(i,i+200));
-  const athById={};
-  for(const ch of chunks){
-    const url = 'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=' + ch.join(',') + '&per_page=250&page=1';
+  // markets → ATH
+  for(let i=0;i<idList.length;i+=200){
+    const chunk = idList.slice(i,i+200);
     try{
-      const arr = await fetchJSON(url);
-      for(const it of (arr||[])){ athById[it.id]=it.ath ?? null; }
-    }catch(e){ /* ignore  */ }
+      const arr = await fetchJSON('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=' + chunk.join(',') + '&per_page=250&page=1');
+      for(const it of (arr||[])){
+        const sym = Object.keys(idsBySym).find(k => idsBySym[k] === it.id);
+        const row = rows.find(r => r.symbol === sym);
+        if(row){
+          row.ath = it.ath ?? null;
+          row.ath_mult = (row.price && row.price>0 && typeof it.ath==='number') ? (it.ath / row.price) : null;
+        }
+      }
+    }catch(e){ /* ignore */ }
   }
+  // volumes 30j (daily)
   for(const r of rows){
     const id = idsBySym[r.symbol]; if(!id) continue;
     const vols = await geckoMarketChart30d(id);
@@ -256,16 +260,10 @@ async function enrichWithGecko(rows){
     r.var_vol_7_over_30 = (v7 && v30) ? (v7 / v30) : null;   // ex: 1.25×
     r.vol7_mc  = (v7 && r.mc)  ? (v7 / r.mc * 100)  : null;  // %
     r.vol7_tvl = (v7 && r.tvl) ? (v7 / r.tvl * 100) : null;  // %
-
-    const ath = athById[id];
-    if(typeof ath === 'number'){
-      r.ath = ath;
-      r.ath_mult = (r.price && r.price>0) ? (ath / r.price) : null;
-    }
   }
 }
 
-// ================= build helpers =================
+/* ================= build helpers ================= */
 function baseRow(it, q){
   const usd = q?.quote?.USD;
   return {
@@ -279,54 +277,4 @@ function baseRow(it, q){
     d30: usd?.percent_change_30d ?? null,
 
     mc: usd?.market_cap ?? null,
-    tvl: null,
-    mc_tvl: null,
-
-    vol_mc_24: (usd?.volume_24h && usd?.market_cap) ? (usd.volume_24h / usd.market_cap * 100) : null,
-
-    // remplis après Gecko
-    vol7_avg: null,
-    vol30_avg: null,
-    vol7_mc: null,
-    vol7_tvl: null,
-    var_vol_7_over_30: null,
-
-    rsi_d: null,
-    rsi_h4: null,
-
-    ath: null,
-    ath_mult: null,
-
-    circulating_supply: q?.circulating_supply ?? null,
-    total_supply:       q?.total_supply ?? null,
-    max_supply:         q?.max_supply ?? null,
-    fdv:                usd?.fully_diluted_market_cap ?? null,
-    rank:               q?.cmc_rank ?? null
-  };
-}
-function writeDataJSON(rows){
-  const out = { updated_at: new Date().toISOString(), tokens: rows };
-  fs.writeFileSync(OUTPUT, JSON.stringify(out, null, 2), 'utf8');
-  console.log(`✅ Écrit ${OUTPUT} avec ${rows.length} tokens.`);
-}
-
-// ================= MAIN =================
-(async()=>{
-  try{
-    const recent = await readRecentFromSheet();
-    const syms = recent.map(x=>x.symbol);
-    let cmc={}; if(syms.length){ try{ cmc = await cmcQuotesBySymbol(syms); }catch(e){ console.warn('CMC off',e.message||e); } }
-    const rows = recent.map(it => baseRow(it, cmc[it.symbol]));
-
-    // TVL auto-match (protocols/chains)
-    await enrichWithAutoTVL(rows);
-
-    // Volumes 7/30 + ATH
-    await enrichWithGecko(rows);
-
-    writeDataJSON(rows);
-  }catch(e){
-    console.error('❌ Erreur (JSON vide):', e.message||e);
-    writeDataJSON([]);
-  }
-})();
+   
