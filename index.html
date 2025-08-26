@@ -8,6 +8,9 @@
   :root{
     --bg:#0b0d12;--panel:#0f1320;--panel-2:#121727;--text:#e6edf3;--muted:#9aa4b2;
     --green:#29d397;--red:#ff6b6b;--amber:#ffc857;--blue:#6aa7ff;--card:#0c111b;--outline:#1e2a44;
+    --side-w:360px;           /* largeur initiale panneau */
+    --side-min:280px;         /* largeur mini */
+    --side-max:560px;         /* largeur maxi */
   }
   *{box-sizing:border-box}
   body{margin:0;background:linear-gradient(180deg,#0a0d16,#0b0d12);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
@@ -19,11 +22,21 @@
   .btn{cursor:pointer}
   .note{color:var(--muted);font-size:12px;margin:6px 0 14px}
 
-  .layout{display:grid;grid-template-columns:1fr 360px;gap:16px}
-  .card{background:var(--panel);border:1px solid var(--outline);border-radius:14px;box-shadow:0 10px 24px rgba(0,0,0,.35);overflow:hidden}
-  .side{position:sticky; top:16px; align-self:start}
+  /* Layout avec colonne tableau flexible + colonne panneau à largeur variable */
+  .layout{
+    display:grid;
+    grid-template-columns:minmax(0,1fr) var(--side-w);
+    gap:16px;
+    align-items:start;
+  }
+  .layout.one-col{ grid-template-columns:1fr; }
 
-  table{width:100%;border-collapse:separate;border-spacing:0}
+  .card{background:var(--panel);border:1px solid var(--outline);border-radius:14px;box-shadow:0 10px 24px rgba(0,0,0,.35);overflow:hidden}
+  .side{position:sticky; top:16px; align-self:start; }
+
+  /* Scroller pour éviter le crop du tableau */
+  .table-scroller{width:100%;overflow:auto}
+  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1100px;}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));color:#cfe0ff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 10px}
   tbody td{padding:10px 10px;border-bottom:1px solid #0f1422}
   tbody tr:hover{background:rgba(255,255,255,.03)}
@@ -42,7 +55,34 @@
   .pin{cursor:pointer;border:1px solid var(--outline);background:var(--panel-2);border-radius:10px;padding:4px 8px;color:var(--muted)}
   .pin.active{color:#fff;border-color:#29d397;box-shadow:inset 0 0 0 1px #29d397}
   .links a{color:#9ec5ff;text-decoration:none;margin-right:8px}
-  @media (max-width:980px){ .layout{grid-template-columns:1fr} .side{position:static} thead .hide-sm, tbody .hide-sm{display:none} }
+
+  /* Barre de redimensionnement */
+  .resize-col{
+    position:relative;
+    display:grid;
+    grid-template-columns:1fr 6px; /* panneau + poignée */
+    gap:0;
+  }
+  .resizer{
+    width:6px;
+    cursor:col-resize;
+    background:transparent;
+    position:relative;
+  }
+  .resizer::after{
+    content:"";
+    position:absolute; inset:0;
+    background:linear-gradient(180deg, transparent 0, transparent 30%, rgba(255,255,255,.06) 30%, rgba(255,255,255,.06) 70%, transparent 70%, transparent 100%);
+  }
+  .resizer:hover{ background:rgba(255,255,255,.03); }
+  .resizing .resizer{ background:rgba(255,255,255,.08); }
+
+  @media (max-width:980px){
+    .layout{ grid-template-columns:1fr; }
+    .resize-col{ grid-template-columns:1fr; }
+    .resizer{ display:none; }
+    .side{ position:static; }
+  }
 </style>
 </head>
 <body>
@@ -51,54 +91,60 @@
     <div class="title">Scan MA50 v1.2 — Screener</div>
     <div class="toolbar">
       <input id="search" placeholder="Rechercher un token…" />
+      <button id="toggleSide" class="btn">🗂️ Détails</button>
       <button id="btnRefresh" class="btn">↻ Rafraîchir</button>
       <label><input type="checkbox" id="autoToggle"> Auto-refresh (60s)</label>
     </div>
   </header>
   <div class="note" id="lastupdate">Chargement…</div>
 
-  <div class="layout">
+  <div class="layout" id="layout">
     <!-- Tableau -->
     <div class="card">
-      <table id="screener">
-        <thead>
-          <tr>
-            <th>Token</th>
-            <th style="white-space:nowrap">Date</th>
-            <th>Prix</th>
-            <th>Δ24h</th>
-            <th class="hide-sm">Δ7j</th>
-            <th class="hide-sm">Δ30j</th>
-            <th>MC</th>
-            <th>TVL</th>
-            <th>MC/TVL</th>
-            <th class="hide-sm">Vol/MC (24h)</th>
-            <th class="hide-sm">Moy Vol7j/TVL</th>
-            <th>Var Vol 7j/30j</th>
-            <th>RSI D</th>
-            <th class="hide-sm">ATH</th>
-            <th>Potentiel x</th>
-          </tr>
-        </thead>
-        <tbody></tbody>
-      </table>
+      <div class="table-scroller">
+        <table id="screener">
+          <thead>
+            <tr>
+              <th>Token</th>
+              <th style="white-space:nowrap">Date</th>
+              <th>Prix</th>
+              <th>Δ24h</th>
+              <th class="hide-sm">Δ7j</th>
+              <th class="hide-sm">Δ30j</th>
+              <th>MC</th>
+              <th>TVL</th>
+              <th>MC/TVL</th>
+              <th class="hide-sm">Vol/MC (24h)</th>
+              <th class="hide-sm">Moy Vol7j/TVL</th>
+              <th>Var Vol 7j/30j</th>
+              <th>RSI D</th>
+              <th class="hide-sm">ATH</th>
+              <th>Potentiel x</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
     </div>
 
-    <!-- Panneau détails -->
-    <div class="card side" id="detailCard">
-      <div class="panel">
-        <div class="row">
-          <h3 id="d-title">Détails</h3>
-          <button id="pinBtn" class="pin" title="Épingler / libérer">📌 Épingler</button>
-        </div>
+    <!-- Colonne redimensionnable: panneau + poignée -->
+    <div class="resize-col" id="resizeCol">
+      <div class="card side" id="detailCard">
+        <div class="panel">
+          <div class="row">
+            <h3 id="d-title">Détails</h3>
+            <button id="pinBtn" class="pin" title="Épingler / libérer">📌 Épingler</button>
+          </div>
 
-        <div class="kv" id="d-market"></div>
-        <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
-        <div class="kv" id="d-fonda"></div>
-        <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
-        <div class="kv" id="d-social"></div>
-        <div class="links" id="d-links" style="margin-top:8px"></div>
+          <div class="kv" id="d-market"></div>
+          <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
+          <div class="kv" id="d-fonda"></div>
+          <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
+          <div class="kv" id="d-social"></div>
+          <div class="links" id="d-links" style="margin-top:8px"></div>
+        </div>
       </div>
+      <div class="resizer" id="resizer" title="Redimensionner"></div>
     </div>
   </div>
 </div>
@@ -136,7 +182,6 @@ async function loadData(){
     tbody.innerHTML=''; rows.length=0;
     tokensData.forEach(t=> addRow(t));
     applyThresholds();
-    // auto-select first row if none
     if(!selectedRow && rows[0]) { selectRow(rows[0]); }
   }catch(e){
     document.getElementById('lastupdate').textContent = 'Erreur de chargement de data.json';
@@ -269,7 +314,6 @@ function renderDetail(r){
   ].filter(Boolean).join(' ');
 }
 
-/* Pin toggle */
 pinBtn.addEventListener('click', ()=>{
   pinned = !pinned;
   pinBtn.classList.toggle('active', pinned);
@@ -290,6 +334,62 @@ function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } 
 autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
 if(autoToggle.checked) startAuto();
 autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
+
+/* Toggle panneau */
+const side = document.getElementById('detailCard');
+const resizeCol = document.getElementById('resizeCol');
+const layout = document.getElementById('layout');
+document.getElementById('toggleSide').addEventListener('click', ()=>{
+  const hidden = side.classList.toggle('hidden');
+  resizeCol.style.display = hidden ? 'none' : 'grid';
+  layout.classList.toggle('one-col', hidden);
+  localStorage.setItem('sideHidden', hidden ? '1' : '0');
+});
+if(localStorage.getItem('sideHidden')==='1'){
+  side.classList.add('hidden');
+  resizeCol.style.display='none';
+  layout.classList.add('one-col');
+}
+
+/* Redimensionnement (drag) */
+const resizer = document.getElementById('resizer');
+let isDragging=false, startX=0, startW=0;
+
+function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+function setSideWidth(px){
+  const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--side-min')) || 280;
+  const max = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--side-max')) || 560;
+  const w = clamp(px, min, Math.min(max, window.innerWidth-240)); // laisse au moins 240px au tableau
+  document.documentElement.style.setProperty('--side-w', w+'px');
+  localStorage.setItem('sideW', String(w));
+}
+
+resizer.addEventListener('mousedown', (e)=>{
+  e.preventDefault();
+  if(side.classList.contains('hidden')) return;
+  isDragging=true;
+  document.body.classList.add('resizing');
+  startX = e.clientX;
+  startW = side.getBoundingClientRect().width;
+  window.addEventListener('mousemove', onDrag);
+  window.addEventListener('mouseup', onStopDrag);
+});
+function onDrag(e){
+  if(!isDragging) return;
+  const dx = e.clientX - startX;
+  setSideWidth(startW + dx);
+}
+function onStopDrag(){
+  if(!isDragging) return;
+  isDragging=false;
+  document.body.classList.remove('resizing');
+  window.removeEventListener('mousemove', onDrag);
+  window.removeEventListener('mouseup', onStopDrag);
+}
+
+/* Restaurer largeur personnalisée */
+const savedW = parseInt(localStorage.getItem('sideW'),10);
+if(!isNaN(savedW)) document.documentElement.style.setProperty('--side-w', savedW+'px');
 
 /* Go */
 loadData();
