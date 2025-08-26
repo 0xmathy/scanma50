@@ -1,4 +1,4 @@
-// fetch_and_build.js — Node 20, sans dépendances externes
+// fetch_and_build.js — Node 20, robuste (CSV retry + CMC)
 const fs = require('fs');
 const path = require('path');
 
@@ -46,26 +46,40 @@ function normalizeAsset(raw){
   return { symbol: base, venue };
 }
 function uniqBy(arr, keyFn){ const s=new Set(), out=[]; for(const it of arr){ const k=keyFn(it); if(k && !s.has(k)){ s.add(k); out.push(it); } } return out; }
-
-// DateKey attendu en "YYYY-MM-DD" (on coupe aux 10 1ers chars au cas où)
 function isRecentDateKey(dateStr, days=3){
   if(!dateStr) return false;
-  const iso = String(dateStr).trim().slice(0,10); // "2025-08-25"
-  // On interprète à minuit UTC pour éviter les soucis TZ
-  const d = new Date(iso + 'T00:00:00Z');
+  const iso = String(dateStr).trim().slice(0,10); // "YYYY-MM-DD"
+  const d = new Date(iso + 'T00:00:00Z'); // éviter TZ
   if(isNaN(d)) return false;
   const diffDays = (Date.now() - d.getTime()) / (1000*60*60*24);
   return diffDays <= days;
 }
 
-// Fetch helpers
-async function fetchText(url, init){ const r=await fetch(url, init); const t=await r.text(); if(!r.ok){ console.error('HTTP', r.status, r.statusText, t.slice(0,200)); throw new Error('Fetch failed'); } return t; }
+// ---------- Fetch helpers ----------
+async function fetchTextWithRetry(url){
+  const ua = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36'};
+  const tries = 3;
+  for(let i=0;i<tries;i++){
+    const bust = (url.includes('?') ? '&' : '?') + 'rand=' + Date.now();
+    const u = url + bust;
+    try{
+      const r = await fetch(u, { redirect:'follow', headers: ua });
+      const t = await r.text();
+      if(r.ok && t && t.length>0) return t;
+      console.warn('CSV try', i+1, 'HTTP', r.status, r.statusText);
+    }catch(e){
+      console.warn('CSV try', i+1, 'error:', e.message||e);
+    }
+    await new Promise(res=>setTimeout(res, 800*(i+1)));
+  }
+  throw new Error('CSV unreachable after retries');
+}
 async function fetchJSON(url, init){ const r=await fetch(url, init); const j=await r.json(); if(!r.ok){ console.error('HTTP', r.status, r.statusText, j); throw new Error('Fetch failed'); } return j; }
 
-// ---------- 1) Lire le Sheet (assets ≤ 3 jours) ----------
+// ---------- 1) Lire le Sheet (≤ 3 jours) ----------
 async function readRecentSymbolsFromSheet(){
-  console.log('➡️  Lecture CSV…');
-  const csv = await fetchText(SHEET_CSV_URL, { redirect:'follow' });
+  console.log('➡️  Lecture CSV (retry)…');
+  const csv = await fetchTextWithRetry(SHEET_CSV_URL);
   const rows = parseCSV(csv);
   if(rows.length<2) return [];
 
@@ -91,17 +105,14 @@ async function readRecentSymbolsFromSheet(){
   return uniq.map(x=>x.symbol);
 }
 
-// ---------- 2) CMC quotes (par symbol, paquets) ----------
+// ---------- 2) CMC quotes (paquets par symbol) ----------
 async function cmcQuotesBySymbol(symbols){
-  if(!CMC_API_KEY){ console.warn('⚠️  Pas de CMC_API_KEY, on laisse les métriques à null'); return {}; }
+  if(!CMC_API_KEY){ console.warn('⚠️  Pas de CMC_API_KEY, métriques null'); return {}; }
   const headers = { 'X-CMC_PRO_API_KEY': CMC_API_KEY };
-
-  // CMC accepte /v2/cryptocurrency/quotes/latest?symbol=A,B,C
-  // On coupe en chunks pour rester safe
   const unique = Array.from(new Set(symbols));
   const chunks=[]; for(let i=0;i<unique.length;i+=80) chunks.push(unique.slice(i,i+80));
 
-  const results = {}; // {SYM: meilleurEntry}
+  const results = {}; // {SYM: bestEntry}
   for(const chunk of chunks){
     const url = 'https://pro-api.coinmarketcap.com/v2/cryptocurrency/quotes/latest?symbol=' + encodeURIComponent(chunk.join(','));
     const data = await fetchJSON(url, { headers });
@@ -109,17 +120,16 @@ async function cmcQuotesBySymbol(symbols){
 
     for(const sym of Object.keys(data.data)){
       const arr = Array.isArray(data.data[sym]) ? data.data[sym] : [data.data[sym]];
-      // Choisir la meilleure entrée : active, plus petit rank
       const best = arr
         .filter(x => x.is_active !== 0)
         .sort((a,b)=> (a.cmc_rank||1e9) - (b.cmc_rank||1e9))[0] || arr[0];
       if(best) results[sym.toUpperCase()] = best;
     }
   }
-  return results; // keyed by SYMBOL
+  return results;
 }
 
-// ---------- 3) Construire data.json ----------
+// ---------- 3) Construire JSON ----------
 function buildRows(symbols, cmcBySym){
   const rows=[];
   for(const sym of symbols){
@@ -129,26 +139,20 @@ function buildRows(symbols, cmcBySym){
     rows.push({
       symbol: sym,
       venue: "",
-
       price: usd?.price ?? null,
       d24: usd?.percent_change_24h ?? null,
       d7:  usd?.percent_change_7d ?? null,
       d30: usd?.percent_change_30d ?? null,
-
       mc: usd?.market_cap ?? null,
       tvl: null,
       mc_tvl: null,
-
       vol_mc_24: (usd?.volume_24h && usd?.market_cap) ? (usd.volume_24h / usd.market_cap * 100) : null,
       vol7_mc: null,
       var_vol_7_over_30: null,
-
       rsi_d: null,
       rsi_h4: null,
-
       ath: null,
       ath_mult: null,
-
       circulating_supply: q?.circulating_supply ?? null,
       total_supply:       q?.total_supply ?? null,
       max_supply:         q?.max_supply ?? null,
@@ -158,7 +162,6 @@ function buildRows(symbols, cmcBySym){
   }
   return rows;
 }
-
 function writeDataJSON(rows){
   const out = { updated_at: new Date().toISOString(), tokens: rows };
   fs.writeFileSync(OUTPUT, JSON.stringify(out, null, 2), 'utf8');
@@ -169,22 +172,16 @@ function writeDataJSON(rows){
 (async()=>{
   try{
     const symbols = await readRecentSymbolsFromSheet();
-
     let cmcBySym = {};
     if(symbols.length){
-      try{
-        cmcBySym = await cmcQuotesBySymbol(symbols);
-      }catch(e){
-        console.warn('⚠️  CMC indisponible :', e.message || e);
-      }
+      try{ cmcBySym = await cmcQuotesBySymbol(symbols); }
+      catch(e){ console.warn('⚠️  CMC indisponible :', e.message||e); }
     }
-
     const rows = buildRows(symbols, cmcBySym);
     writeDataJSON(rows);
   }catch(e){
-    console.error('❌ Erreur:', e.message || e);
-    // on écrit malgré tout un data.json vide mais valide pour éviter la casse côté site
-    writeDataJSON([]);
-    process.exit(1);
+    console.error('❌ Erreur (fallback JSON vide):', e.message || e);
+    writeDataJSON([]); // on écrit quand même un JSON valide pour ne pas casser le site
+    // on n'échoue pas le job : process.exit(0)
   }
 })();
