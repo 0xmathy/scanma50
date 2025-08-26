@@ -1,6 +1,6 @@
 // fetch_and_build.js — Node 20
 // Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL auto-match, chain-first)
-// → CoinGecko (ATH + date, volumes 30j, RSI Daily 14) → data.json pour le front.
+// → CoinGecko (ATH + date, volumes 30j, RSI Daily 14) → data.json
 
 const fs = require('fs');
 const path = require('path');
@@ -14,7 +14,7 @@ const CMC_API_KEY = process.env.CMC_API_KEY || '';
 const QUOTES = ['USDT','USDC','USD','BTC','ETH','EUR','DAI'];
 const SEP_RE = /[:\-_/]/;
 
-/* ---------- CoinGecko overrides (améliore la couverture ATH/volumes/RSI) ---------- */
+/* ---------- CoinGecko overrides ---------- */
 const GECKO_OVERRIDES = {
   BTC:'bitcoin', ETH:'ethereum', BNB:'binancecoin', SOL:'solana', ADA:'cardano', XRP:'ripple',
   DOT:'polkadot', LINK:'chainlink', MATIC:'polygon', POL:'polygon', AVAX:'avalanche-2',
@@ -23,10 +23,10 @@ const GECKO_OVERRIDES = {
   SNX:'synthetix-network-token', LDO:'lido-dao', AAVE:'aave', UNI:'uniswap', MKR:'maker',
   RUNE:'thorchain', CAKE:'pancakeswap-token', GMX:'gmx', DYDX:'dydx-chain', STETH:'staked-ether',
   MORPHO:'morpho-token',
-  ATH:'aethir' // ajuste/retire si besoin
+  ATH:'aethir'
 };
 
-/* ---------- Aliases chaînes DeFiLlama (priorité aux chains pour éviter les faux positifs) ---------- */
+/* ---------- Aliases DeFiLlama (favorise les chains) ---------- */
 const CHAIN_ALIASES = {
   ETH:'Ethereum', WETH:'Ethereum', STETH:'Ethereum',
   AVAX:'Avalanche', OP:'Optimism', ARB:'Arbitrum', BNB:'BSC',
@@ -36,21 +36,16 @@ const CHAIN_ALIASES = {
   ETC:'Ethereum Classic'
 };
 
-/* ================= utilitaires ================= */
+/* ================= Utils ================= */
 function parseCSV(text){
   const rows=[]; let row=[], col='', inQ=false;
   for(let i=0;i<text.length;i++){
     const c=text[i], n=text[i+1];
-    if(inQ){
-      if(c=='"'&&n=='"'){ col+='"'; i++; }
-      else if(c=='"'){ inQ=false; }
-      else col+=c;
-    }else{
-      if(c=='"') inQ=true;
+    if(inQ){ if(c=='"'&&n=='"'){ col+='"'; i++; } else if(c=='"'){ inQ=false; } else col+=c; }
+    else { if(c=='"') inQ=true;
       else if(c==','){ row.push(col); col=''; }
       else if(c=='\n'){ row.push(col); rows.push(row); row=[]; col=''; }
-      else if(c!='\r'){ col+=c; }
-    }
+      else if(c!='\r'){ col+=c; } }
   }
   row.push(col); rows.push(row);
   return rows.filter(r=>r.length>1 || (r.length===1 && r[0] !== ''));
@@ -61,7 +56,7 @@ function normalizeAsset(raw){
   s = s.split(/\s+/)[0];
   let venue='', base=s;
   if(s.includes(':')){ const p=s.split(':'); if(p.length>=2){ venue=(p[0]||'').toUpperCase(); base=p[1]; } }
-  const segs=base.split(SEP_RE).filter(Boolean);
+  const segs=base.split(/[:\-_/]/).filter(Boolean);
   base = segs[segs.length-1] || base;
   if(/^0x[0-9a-fA-F]{4,}$/.test(base)) return { symbol: base.toUpperCase(), venue };
   base = base.toUpperCase().replace(/(PERP|\d+L|\d+S)$/,'');
@@ -71,26 +66,26 @@ function normalizeAsset(raw){
 }
 function isRecentDateKey(dateStr, days){
   if(!dateStr) return false;
-  const iso = String(dateStr).trim().slice(0,10); // YYYY-MM-DD
-  const d = new Date(iso + 'T00:00:00Z');
+  const iso = String(dateStr).trim().slice(0,10);
+  const d = new Date(iso+'T00:00:00Z');
   if(isNaN(d)) return false;
-  return (Date.now() - d.getTime())/86400000 <= days;
+  return (Date.now()-d.getTime())/86400000 <= days;
 }
 async function fetchTextWithRetry(url){
-  const ua = {'User-Agent':'Mozilla/5.0'};
+  const ua={'User-Agent':'Mozilla/5.0'};
   for(let i=0;i<3;i++){
-    const u = url + (url.includes('?')?'&':'?') + 'rand=' + Date.now();
+    const u=url+(url.includes('?')?'&':'?')+'rand='+Date.now();
     try{
-      const r = await fetch(u, { redirect:'follow', headers: ua });
-      const t = await r.text();
+      const r=await fetch(u,{headers:ua,redirect:'follow'});
+      const t=await r.text();
       if(r.ok && t && t.length>0) return t;
     }catch(e){}
     await new Promise(res=>setTimeout(res, 800*(i+1)));
   }
   throw new Error('CSV unreachable');
 }
-async function fetchJSON(url, init){ const r=await fetch(url, init); const j=await r.json().catch(()=> ({})); if(!r.ok) throw new Error(`HTTP ${r.status}`); return j; }
-const avg = arr => (!arr||!arr.length) ? null : arr.reduce((a,b)=>a+b,0)/arr.length;
+async function fetchJSON(url, init){ const r=await fetch(url,init); const j=await r.json().catch(()=> ({})); if(!r.ok) throw new Error(`HTTP ${r.status}`); return j; }
+const avg = a => (!a||!a.length) ? null : a.reduce((x,y)=>x+y,0)/a.length;
 const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
 
 /* ================= 1) Sheet → {symbol, alert_date} ================= */
@@ -118,7 +113,7 @@ async function readRecentFromSheet(){
     return Array.from(m.values());
   };
   let recent = collect(2);
-  if(recent.length===0) recent = collect(7); // fallback si pas d’alertes <48h
+  if(recent.length===0) recent = collect(7);
   return recent;
 }
 
@@ -158,7 +153,7 @@ async function cmcInfoBySymbol(symbols){
   return out;
 }
 
-/* ================= 3) DeFiLlama AUTO-MATCH (TVL) ================= */
+/* ================= 3) DeFiLlama (TVL auto-match) ================= */
 let LLAMA_PROTOCOLS=null, LLAMA_CHAINS=null;
 async function loadLlamaCatalogs(){
   if(!LLAMA_CHAINS)    LLAMA_CHAINS    = await fetchJSON('https://api.llama.fi/chains');
@@ -192,12 +187,10 @@ function pickProtocolForSymbol(symbol){
 }
 async function getTVLForSymbol(symbol){
   await loadLlamaCatalogs();
-  // chaîne en priorité
   const chain = pickChainForSymbol(symbol);
   if(chain && typeof chain.tvl === 'number'){
     return { tvl: chain.tvl, via: `chain:${chain.name}` };
   }
-  // sinon, protocole
   const proto = pickProtocolForSymbol(symbol);
   if(proto && proto.slug){
     try{
@@ -208,22 +201,51 @@ async function getTVLForSymbol(symbol){
   return { tvl: null, via: null };
 }
 
-/* ================= 4) CoinGecko (ATH + date, volumes 30j, RSI Daily) ================= */
-async function geckoFindId(symbol){
+/* ================= 4) CoinGecko (ATH, vols, RSI) ================= */
+async function geckoFindId(symbol, cmcInfo){
+  // 1) override
   if(GECKO_OVERRIDES[symbol]) return GECKO_OVERRIDES[symbol];
+
+  // 2) search by symbol
   try{
-    const j = await fetchJSON('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(symbol));
-    const hits = (j?.coins||[]).filter(c => (c.symbol||'').toUpperCase()===symbol.toUpperCase());
-    if(!hits.length) return null;
-    hits.sort((a,b)=>(a.market_cap_rank||1e9)-(b.market_cap_rank||1e9));
-    return hits[0].id || null;
-  }catch(e){ return null; }
+    const j1 = await fetchJSON('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(symbol));
+    const hits1 = (j1?.coins||[]).filter(c => (c.symbol||'').toUpperCase()===symbol.toUpperCase());
+    if(hits1.length){
+      hits1.sort((a,b)=>(a.market_cap_rank||1e9)-(b.market_cap_rank||1e9));
+      return hits1[0].id;
+    }
+  }catch(e){}
+
+  // 3) search by name (from CMC)
+  const name = (cmcInfo?.name || cmcInfo?.slug || '').toString().trim();
+  if(name){
+    try{
+      const j2 = await fetchJSON('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(name));
+      const hits2 = (j2?.coins||[]);
+      if(hits2.length){
+        hits2.sort((a,b)=>(a.market_cap_rank||1e9)-(b.market_cap_rank||1e9));
+        return hits2[0].id;
+      }
+    }catch(e){}
+  }
+
+  // 4) last resort: lowercased name without spaces
+  if(name){
+    try{
+      const j3 = await fetchJSON('https://api.coingecko.com/api/v3/search?query='+encodeURIComponent(name.replace(/\s+/g,'-').toLowerCase()));
+      const hits3 = (j3?.coins||[]);
+      if(hits3.length){
+        hits3.sort((a,b)=>(a.market_cap_rank||1e9)-(b.market_cap_rank||1e9));
+        return hits3[0].id;
+      }
+    }catch(e){}
+  }
+  return null;
 }
 async function geckoDetails(id){
   try{
     const j = await fetchJSON(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}?localization=false&tickers=false&market_data=true&community_data=true&developer_data=false&sparkline=false`);
-    const md = j?.market_data;
-    const comm = j?.community_data;
+    const md = j?.market_data, comm = j?.community_data;
     return {
       ath: md?.ath?.usd ?? null,
       ath_date: md?.ath_date?.usd ?? null,
@@ -232,18 +254,14 @@ async function geckoDetails(id){
     };
   }catch(e){ return {}; }
 }
-async function geckoVolumes30d(id){
+async function geckoMarketChart(id, days, interval='daily'){
   try{
-    const j = await fetchJSON(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=30&interval=daily`);
-    const vols = (j?.total_volumes||[]).map(v=>+v[1]).filter(Number.isFinite);
-    return { v7: avg(vols.slice(-7)), v30: avg(vols.slice(-30)) };
-  }catch(e){ return {}; }
-}
-async function geckoPricesNDays(id, days=120){
-  try{
-    const j = await fetchJSON(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${days}&interval=daily`);
-    return (j?.prices||[]).map(p=>+p[1]).filter(Number.isFinite);
-  }catch(e){ return []; }
+    const j = await fetchJSON(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${days}&interval=${interval}`);
+    return {
+      vols: (j?.total_volumes||[]).map(v=>+v[1]).filter(Number.isFinite),
+      closes: (j?.prices||[]).map(p=>+p[1]).filter(Number.isFinite)
+    };
+  }catch(e){ return { vols:[], closes:[] }; }
 }
 function rsi14FromCloses(closes){
   const n=14;
@@ -256,34 +274,26 @@ function rsi14FromCloses(closes){
   }
   let avgGain = gains.reduce((a,b)=>a+b,0)/n;
   let avgLoss = losses.reduce((a,b)=>a+b,0)/n;
-
   for(let i=n+1;i<closes.length;i++){
     const diff = closes[i]-closes[i-1];
     const gain = Math.max(diff,0), loss = Math.max(-diff,0);
-    avgGain = (avgGain*(n-1) + gain)/n;
-    avgLoss = (avgLoss*(n-1) + loss)/n;
+    avgGain = (avgGain*(n-1)+gain)/n;
+    avgLoss = (avgLoss*(n-1)+loss)/n;
   }
   if(avgLoss === 0) return 100;
   const rs = avgGain/avgLoss;
-  return 100 - (100/(1+rs));
+  return 100 - 100/(1+rs);
 }
 
 /* ================= build helpers ================= */
 function baseRow(it, q, info){
   const usd = q?.quote?.USD;
-
-  // narratif & liens depuis CMC info
-  const tags = Array.isArray(info?.tags) ? info.tags.slice(0,5) : [];
-  const narrative = tags.length ? tags.join(', ') : null;
-
   const urls = info?.urls || {};
-  const website = (urls.website||[])[0] || null;
+  const website    = (urls.website||[])[0] || null;
   const whitepaper = (urls.technical_doc||[])[0] || null;
-  const twitter = (urls.twitter||[])[0] || (info?.twitter_username ? `https://twitter.com/${info.twitter_username}` : null);
-  const github = (urls.source_code||[])[0] || null;
-
-  const desc = (info?.description||'').replace(/\s+/g,' ').trim();
-  const description_short = desc ? (desc.length>260 ? desc.slice(0,257)+'…' : desc) : null;
+  const twitter    = (urls.twitter||[])[0] || (info?.twitter_username ? `https://twitter.com/${info.twitter_username}` : null);
+  const github     = (urls.source_code||[])[0] || null;
+  const tags = Array.isArray(info?.tags) ? info.tags.slice(0,5) : [];
 
   return {
     symbol: it.symbol,
@@ -299,24 +309,22 @@ function baseRow(it, q, info){
     tvl: null,
     mc_tvl: null,
 
-    vol_mc_24: (usd?.volume_24h && usd?.market_cap) ? (usd.volume_24h / usd.market_cap * 100) : null,
+    vol_mc_24: (usd?.volume_24h && usd?.market_cap) ? (usd.volume_24h/usd.market_cap*100) : null,
 
-    // remplis via Gecko
     vol7_avg: null,
     vol30_avg: null,
     vol7_mc: null,
     vol7_tvl: null,
     var_vol_7_over_30: null,
 
-    rsi_d: null,   // <-- RSI Daily (14)
-    rsi_h4: null,  // (placeholder si tu veux H4 plus tard)
+    rsi_d: null,
+    rsi_h4: null,
 
     ath: null,
     ath_date: null,
     ath_mult: null,
 
-    narrative,
-    description_short,
+    narrative: tags.length ? tags.join(', ') : null,
     launch_date: info?.date_added || null,
 
     twitter_followers: null,
@@ -328,7 +336,8 @@ function baseRow(it, q, info){
     fdv:                usd?.fully_diluted_market_cap ?? null,
     rank:               q?.cmc_rank ?? null,
 
-    tvl_source: null
+    tvl_source: null,
+    gecko_id: null
   };
 }
 function writeDataJSON(rows){
@@ -340,21 +349,18 @@ function writeDataJSON(rows){
 /* ================= MAIN ================= */
 (async()=>{
   try{
-    // Sheet
     const recent = await readRecentFromSheet();
     const syms = recent.map(x=>x.symbol);
 
-    // CMC
     let cmcQ={}, cmcI={};
     if(syms.length){
       try{ cmcQ = await cmcQuotesBySymbol(syms); } catch(e){ console.warn('CMC quotes:', e.message); }
       try{ cmcI = await cmcInfoBySymbol(syms);   } catch(e){ console.warn('CMC info:', e.message); }
     }
 
-    // base rows
     const rows = recent.map(it => baseRow(it, cmcQ[it.symbol], cmcI[it.symbol]));
 
-    // TVL (auto-match)
+    // TVL
     for(const r of rows){
       try{
         const { tvl, via } = await getTVLForSymbol(r.symbol);
@@ -363,43 +369,34 @@ function writeDataJSON(rows){
       }catch(e){}
     }
 
-    // CoinGecko enrich (ATH, dates, followers, volumes, RSI daily)
-    const idsBySym={};
-    for(const r of rows){ idsBySym[r.symbol] = await geckoFindId(r.symbol); }
-
-    // ATH + dates + followers
+    // CoinGecko enrich: ID → (ATH, vols, RSI, followers, genesis if missing)
     for(const r of rows){
-      const id = idsBySym[r.symbol]; if(!id) continue;
       try{
+        const id = await geckoFindId(r.symbol, cmcI[r.symbol]);
+        r.gecko_id = id || null;
+        if(!id) continue;
+
         const det = await geckoDetails(id);
         if(typeof det.ath === 'number'){ r.ath = det.ath; if(r.price && r.price>0) r.ath_mult = det.ath / r.price; }
         if(det.ath_date) r.ath_date = det.ath_date;
-        if(det.genesis_date && !r.launch_date) r.launch_date = det.genesis_date;
         if(det.twitter_followers != null) r.twitter_followers = det.twitter_followers;
-      }catch(e){}
-    }
+        if(det.genesis_date && !r.launch_date) r.launch_date = det.genesis_date;
 
-    // volumes (7/30) + RSI daily 14
-    for(const r of rows){
-      const id = idsBySym[r.symbol]; if(!id) continue;
-      try{
-        const vols = await geckoVolumes30d(id);
-        const v7 = vols.v7, v30 = vols.v30;
+        const mc = await geckoMarketChart(id, 30, 'daily');
+        const v7 = avg(mc.vols.slice(-7)), v30 = avg(mc.vols.slice(-30));
         if(v7!=null) r.vol7_avg = v7;
         if(v30!=null) r.vol30_avg = v30;
         if(v7 && v30) r.var_vol_7_over_30 = v7 / v30;
         if(r.mc && v7)  r.vol7_mc  = v7 / r.mc * 100;
         if(r.tvl && v7) r.vol7_tvl = v7 / r.tvl * 100;
-      }catch(e){}
 
-      try{
-        const closes = await geckoPricesNDays(id, 120);
+        const closes = mc.closes.length ? mc.closes : (await geckoMarketChart(id, 120, 'daily')).closes;
         const rsi = rsi14FromCloses(closes);
         if(rsi!=null) r.rsi_d = rsi;
       }catch(e){}
     }
 
-    // Finalize
+    // Final checks
     for(const r of rows){
       if(r.tvl && r.mc && !r.mc_tvl) r.mc_tvl = r.mc / r.tvl;
     }
