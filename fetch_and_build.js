@@ -1,6 +1,6 @@
 // fetch_and_build.js — Node 20
-// Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL auto-match, chain-first) → CoinGecko (vols 7/30 + ATH)
-// Génère data.json pour le front.
+// Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL auto-match, chain-first)
+// → CoinGecko (vols 7/30 + ATH) → data.json pour le front.
 
 const fs = require('fs');
 const path = require('path');
@@ -22,7 +22,7 @@ const GECKO_OVERRIDES = {
   SNX:'synthetix-network-token', LDO:'lido-dao', AAVE:'aave', UNI:'uniswap', MKR:'maker',
   RUNE:'thorchain', CAKE:'pancakeswap-token', GMX:'gmx', DYDX:'dydx-chain', STETH:'staked-ether',
   MORPHO:'morpho-token',
-  ATH:'aethir' // retire/ajuste si ce n’est pas ton “ATH”
+  ATH:'aethir' // ajuste/retire si ce n’est pas ton "ATH"
 };
 
 /* ---------- Aliases chaînes DeFiLlama (chain-first) ---------- */
@@ -31,7 +31,7 @@ const CHAIN_ALIASES = {
   AVAX:'Avalanche', OP:'Optimism', ARB:'Arbitrum', BNB:'BSC',
   MATIC:'Polygon', POL:'Polygon', SOL:'Solana', ADA:'Cardano',
   DOT:'Polkadot', NEAR:'Near', APT:'Aptos', SUI:'Sui',
-  ATOM:['Cosmos', 'Cosmos Hub', 'CosmosHub'], // on teste ces 3
+  ATOM:['Cosmos', 'Cosmos Hub', 'CosmosHub'],
   ETC:'Ethereum Classic'
 };
 
@@ -69,7 +69,6 @@ function normalizeAsset(raw){
   if(!base) return null;
   return { symbol: base, venue };
 }
-function uniqBy(arr, keyFn){ const s=new Set(), out=[]; for(const it of arr){ const k=keyFn(it); if(k && !s.has(k)){ s.add(k); out.push(it); } } return out; }
 function isRecentDateKey(dateStr, days){
   if(!dateStr) return false;
   const iso = String(dateStr).trim().slice(0,10); // YYYY-MM-DD
@@ -156,12 +155,12 @@ function pickChainForSymbol(symbol){
   if(!Array.isArray(LLAMA_CHAINS)) return null;
   const alias = CHAIN_ALIASES[symbol] || symbol;
   const candidates = Array.isArray(alias) ? alias : [alias];
-  // 1) exact (case-insensitive)
+  // exact
   for(const cand of candidates){
     const c = LLAMA_CHAINS.find(ch => (ch.name||'').toLowerCase() === cand.toLowerCase());
     if(c) return c;
   }
-  // 2) includes
+  // contains
   for(const cand of candidates){
     const c = LLAMA_CHAINS.find(ch => (ch.name||'').toLowerCase().includes(cand.toLowerCase()));
     if(c) return c;
@@ -171,26 +170,25 @@ function pickChainForSymbol(symbol){
 function pickProtocolForSymbol(symbol){
   if(!Array.isArray(LLAMA_PROTOCOLS)) return null;
   const SYM = symbol.toUpperCase();
-  // 1) strict: symbol exact
+  // 1) symbol exact
   let candidates = LLAMA_PROTOCOLS.filter(p => (p.symbol||'').toUpperCase() === SYM);
-  // 2) fallback: name contient le symbole normalisé (mais on exclut les trop éloignés via score simple)
+  // 2) fallback: name ~ symbol
   if(candidates.length===0){
     const ns = norm(symbol);
     candidates = LLAMA_PROTOCOLS.filter(p => norm(p.name).includes(ns));
   }
   if(candidates.length===0) return null;
-  // Choix: plus gros TVL
-  candidates.sort((a,b)=> (b.tvl||0) - (a.tvl||0));
+  candidates.sort((a,b)=> (b.tvl||0) - (a.tvl||0)); // plus gros TVL
   return candidates[0];
 }
 async function getTVLForSymbol(symbol){
   await loadLlamaCatalogs();
-  // **CHAÎNE EN PREMIER** (évite des faux positifs genre ATOM → “hAtom Lending”)
+  // CHAÎNE d'abord (évite ATOM → hAtom Lending)
   const chain = pickChainForSymbol(symbol);
   if(chain && typeof chain.tvl === 'number'){
     return { tvl: chain.tvl, via: `chain:${chain.name}` };
   }
-  // Sinon protocole
+  // sinon protocole
   const proto = pickProtocolForSymbol(symbol);
   if(proto && proto.slug){
     try{
@@ -231,25 +229,31 @@ async function geckoMarketChart30d(id){
 }
 const avg = arr => (!arr.length ? null : arr.reduce((a,b)=>a+b,0)/arr.length);
 async function enrichWithGecko(rows){
+  // map symbol -> id
   const idsBySym={};
   for(const r of rows){ idsBySym[r.symbol] = await geckoFindId(r.symbol); }
+
+  // markets -> ATH & ath_mult
   const idList = Object.values(idsBySym).filter(Boolean);
-  // markets → ATH
   for(let i=0;i<idList.length;i+=200){
     const chunk = idList.slice(i,i+200);
     try{
-      const arr = await fetchJSON('https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids=' + chunk.join(',') + '&per_page=250&page=1');
+      const arr = await fetchJSON(
+        'https://api.coingecko.com/api/v3/coins/markets?vs_currency=usd&ids='
+        + chunk.join(',') + '&per_page=250&page=1'
+      );
       for(const it of (arr||[])){
         const sym = Object.keys(idsBySym).find(k => idsBySym[k] === it.id);
         const row = rows.find(r => r.symbol === sym);
         if(row){
-          row.ath = it.ath ?? null;
+          row.ath = (typeof it.ath === 'number') ? it.ath : null;
           row.ath_mult = (row.price && row.price>0 && typeof it.ath==='number') ? (it.ath / row.price) : null;
         }
       }
     }catch(e){ /* ignore */ }
   }
-  // volumes 30j (daily)
+
+  // volumes 7/30
   for(const r of rows){
     const id = idsBySym[r.symbol]; if(!id) continue;
     const vols = await geckoMarketChart30d(id);
@@ -277,4 +281,64 @@ function baseRow(it, q){
     d30: usd?.percent_change_30d ?? null,
 
     mc: usd?.market_cap ?? null,
-   
+    tvl: null,
+    mc_tvl: null,
+
+    vol_mc_24: (usd?.volume_24h && usd?.market_cap) ? (usd.volume_24h / usd.market_cap * 100) : null,
+
+    // remplis après Gecko
+    vol7_avg: null,
+    vol30_avg: null,
+    vol7_mc: null,
+    vol7_tvl: null,
+    var_vol_7_over_30: null,
+
+    rsi_d: null,
+    rsi_h4: null,
+
+    ath: null,
+    ath_mult: null,
+
+    circulating_supply: q?.circulating_supply ?? null,
+    total_supply:       q?.total_supply ?? null,
+    max_supply:         q?.max_supply ?? null,
+    fdv:                usd?.fully_diluted_market_cap ?? null,
+    rank:               q?.cmc_rank ?? null
+  };
+}
+function writeDataJSON(rows){
+  const out = { updated_at: new Date().toISOString(), tokens: rows };
+  fs.writeFileSync(OUTPUT, JSON.stringify(out, null, 2), 'utf8');
+  console.log(`✅ Écrit ${OUTPUT} avec ${rows.length} tokens.`);
+}
+
+/* ================= MAIN ================= */
+(async()=>{
+  try{
+    const recent = await readRecentFromSheet();
+    const syms = recent.map(x=>x.symbol);
+    let cmc = {};
+    if(syms.length){
+      try{ cmc = await cmcQuotesBySymbol(syms); }
+      catch(e){ console.warn('⚠️ CMC off:', e.message||e); }
+    }
+    const rows = recent.map(it => baseRow(it, cmc[it.symbol]));
+
+    // TVL auto-match (protocols/chains) — chaîne prioritaire
+    await enrichWithAutoTVL(rows);
+
+    // Volumes 7/30 + ATH
+    await enrichWithGecko(rows);
+
+    // MC/TVL a déjà été rempli lors du TVL si MC dispo; re-check au cas où
+    for(const r of rows){
+      if(r.tvl && r.mc && !r.mc_tvl) r.mc_tvl = r.mc / r.tvl;
+      // Potentiel ATH = ath / price déjà rempli (ath_mult)
+    }
+
+    writeDataJSON(rows);
+  }catch(e){
+    console.error('❌ Erreur (JSON vide):', e.message||e);
+    writeDataJSON([]);
+  }
+})();
