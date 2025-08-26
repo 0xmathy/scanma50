@@ -1,4 +1,4 @@
-// fetch_and_build.js — Node 20, robuste (CSV retry + CMC)
+// fetch_and_build.js — Node 20, CSV (export) + CMC, filtre ≤ 2 jours, alert_date
 const fs = require('fs');
 const path = require('path');
 
@@ -9,7 +9,7 @@ const OUTPUT = path.resolve('data.json');
 const CMC_API_KEY = process.env.CMC_API_KEY || '';
 
 const QUOTES = ['USDT','USDC','USD','BTC','ETH','EUR','DAI'];
-const SEP_RE = /[:\-_/]/;
+const SEP_RE = /[:\\-_/]/;
 
 // ---------- Utils ----------
 function parseCSV(text){
@@ -32,52 +32,48 @@ function parseCSV(text){
 }
 function normalizeAsset(raw){
   if(!raw) return null;
-  let s=String(raw).trim().replace(/[\[\]]/g,'').trim();
-  s = s.split(/\s+/)[0];
+  let s=String(raw).trim().replace(/[\\[\\]]/g,'').trim();
+  s = s.split(/\\s+/)[0];
   let venue='', base=s;
   if(s.includes(':')){ const p=s.split(':'); if(p.length>=2){ venue=(p[0]||'').toUpperCase(); base=p[1]; } }
   const segs=base.split(SEP_RE).filter(Boolean);
   base = segs[segs.length-1] || base;
   if(/^0x[0-9a-fA-F]{4,}$/.test(base)) return { symbol: base.toUpperCase(), venue };
-  base = base.toUpperCase().replace(/(PERP|\d+L|\d+S)$/,'');
+  base = base.toUpperCase().replace(/(PERP|\\d+L|\\d+S)$/,'');
   for(const q of QUOTES){ if(base.endsWith(q)){ base = base.slice(0, -q.length); break; } }
   base = base.replace(/[^A-Z0-9]/g,'').trim();
   if(!base) return null;
   return { symbol: base, venue };
 }
 function uniqBy(arr, keyFn){ const s=new Set(), out=[]; for(const it of arr){ const k=keyFn(it); if(k && !s.has(k)){ s.add(k); out.push(it); } } return out; }
-function isRecentDateKey(dateStr, days=3){
+function isRecentDateKey(dateStr, days=2){                // <= 2 jours maintenant
   if(!dateStr) return false;
-  const iso = String(dateStr).trim().slice(0,10); // "YYYY-MM-DD"
-  const d = new Date(iso + 'T00:00:00Z'); // éviter TZ
+  const iso = String(dateStr).trim().slice(0,10);         // "YYYY-MM-DD"
+  const d = new Date(iso + 'T00:00:00Z');
   if(isNaN(d)) return false;
-  const diffDays = (Date.now() - d.getTime()) / (1000*60*60*24);
+  const diffDays = (Date.now() - d.getTime())/(1000*60*60*24);
   return diffDays <= days;
 }
 
 // ---------- Fetch helpers ----------
 async function fetchTextWithRetry(url){
-  const ua = {'User-Agent':'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123 Safari/537.36'};
-  const tries = 3;
-  for(let i=0;i<tries;i++){
-    const bust = (url.includes('?') ? '&' : '?') + 'rand=' + Date.now();
-    const u = url + bust;
+  const ua = {'User-Agent':'Mozilla/5.0'};
+  for(let i=0;i<3;i++){
+    const u = url + (url.includes('?')?'&':'?') + 'rand=' + Date.now();
     try{
       const r = await fetch(u, { redirect:'follow', headers: ua });
       const t = await r.text();
       if(r.ok && t && t.length>0) return t;
       console.warn('CSV try', i+1, 'HTTP', r.status, r.statusText);
-    }catch(e){
-      console.warn('CSV try', i+1, 'error:', e.message||e);
-    }
+    }catch(e){ console.warn('CSV try', i+1, 'error:', e.message||e); }
     await new Promise(res=>setTimeout(res, 800*(i+1)));
   }
   throw new Error('CSV unreachable after retries');
 }
 async function fetchJSON(url, init){ const r=await fetch(url, init); const j=await r.json(); if(!r.ok){ console.error('HTTP', r.status, r.statusText, j); throw new Error('Fetch failed'); } return j; }
 
-// ---------- 1) Lire le Sheet (≤ 3 jours) ----------
-async function readRecentSymbolsFromSheet(){
+// ---------- 1) Lire le Sheet (≤ 2 jours) ----------
+async function readRecentFromSheet(){
   console.log('➡️  Lecture CSV (retry)…');
   const csv = await fetchTextWithRetry(SHEET_CSV_URL);
   const rows = parseCSV(csv);
@@ -96,16 +92,17 @@ async function readRecentSymbolsFromSheet(){
     const asset = rows[i][idxAsset];
     const dateK = rows[i][idxDateKey];
     if(!asset) continue;
-    if(!isRecentDateKey(dateK, 3)) continue;
+    if(!isRecentDateKey(dateK, 2)) continue;           // filtre 2 jours
     const norm = normalizeAsset(asset);
-    if(norm) out.push(norm);
+    if(norm) out.push({ ...norm, alert_date: String(dateK).slice(0,10) });
   }
-  const uniq = uniqBy(out, x=>`${x.symbol}|${x.venue}`);
-  console.log('➡️  Symbols (≤3j) détectés :', uniq.length);
-  return uniq.map(x=>x.symbol);
+  // dédupe sur symbol|venue, garde le plus récent en cas de doublon
+  const map = new Map();
+  for(const x of out){ const k = `${x.symbol}|${x.venue}`; if(!map.has(k)) map.set(k, x); }
+  return Array.from(map.values());
 }
 
-// ---------- 2) CMC quotes (paquets par symbol) ----------
+// ---------- 2) CMC quotes (par symbol) ----------
 async function cmcQuotesBySymbol(symbols){
   if(!CMC_API_KEY){ console.warn('⚠️  Pas de CMC_API_KEY, métriques null'); return {}; }
   const headers = { 'X-CMC_PRO_API_KEY': CMC_API_KEY };
@@ -130,29 +127,37 @@ async function cmcQuotesBySymbol(symbols){
 }
 
 // ---------- 3) Construire JSON ----------
-function buildRows(symbols, cmcBySym){
+function buildRows(items, cmcBySym){
   const rows=[];
-  for(const sym of symbols){
+  for(const it of items){
+    const sym = it.symbol;
     const q = cmcBySym[sym.toUpperCase()] || null;
     const usd = q?.quote?.USD;
 
     rows.push({
       symbol: sym,
-      venue: "",
+      venue: it.venue || "",
+      alert_date: it.alert_date || null,      // <-- NOUVEAU
+
       price: usd?.price ?? null,
       d24: usd?.percent_change_24h ?? null,
       d7:  usd?.percent_change_7d ?? null,
       d30: usd?.percent_change_30d ?? null,
+
       mc: usd?.market_cap ?? null,
       tvl: null,
       mc_tvl: null,
+
       vol_mc_24: (usd?.volume_24h && usd?.market_cap) ? (usd.volume_24h / usd.market_cap * 100) : null,
       vol7_mc: null,
       var_vol_7_over_30: null,
+
       rsi_d: null,
       rsi_h4: null,
+
       ath: null,
       ath_mult: null,
+
       circulating_supply: q?.circulating_supply ?? null,
       total_supply:       q?.total_supply ?? null,
       max_supply:         q?.max_supply ?? null,
@@ -171,17 +176,16 @@ function writeDataJSON(rows){
 // ---------- MAIN ----------
 (async()=>{
   try{
-    const symbols = await readRecentSymbolsFromSheet();
+    const recent = await readRecentFromSheet();          // {symbol, venue, alert_date}
     let cmcBySym = {};
-    if(symbols.length){
-      try{ cmcBySym = await cmcQuotesBySymbol(symbols); }
+    if(recent.length){
+      try{ cmcBySym = await cmcQuotesBySymbol(recent.map(x=>x.symbol)); }
       catch(e){ console.warn('⚠️  CMC indisponible :', e.message||e); }
     }
-    const rows = buildRows(symbols, cmcBySym);
+    const rows = buildRows(recent, cmcBySym);
     writeDataJSON(rows);
   }catch(e){
     console.error('❌ Erreur (fallback JSON vide):', e.message || e);
-    writeDataJSON([]); // on écrit quand même un JSON valide pour ne pas casser le site
-    // on n'échoue pas le job : process.exit(0)
+    writeDataJSON([]);
   }
 })();
