@@ -14,9 +14,8 @@
   header{display:flex;justify-content:space-between;align-items:center;gap:16px;margin-bottom:16px}
   .title{font-weight:700;font-size:22px}
   .toolbar{display:flex;gap:10px;flex-wrap:wrap}
-  .toolbar input,.toolbar select{background:var(--panel-2);color:var(--text);border:1px solid var(--outline);border-radius:10px;padding:8px 10px}
+  .toolbar input{background:var(--panel-2);color:var(--text);border:1px solid var(--outline);border-radius:10px;padding:8px 10px}
   .note{color:var(--muted);font-size:12px;margin-top:4px}
-
   .table-wrap{background:var(--panel);border:1px solid var(--outline);border-radius:14px;overflow:hidden;box-shadow:0 10px 24px rgba(0,0,0,.35)}
   table{width:100%;border-collapse:separate;border-spacing:0}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));color:#cfe0ff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:12px 10px;cursor:pointer;user-select:none}
@@ -27,8 +26,6 @@
   .sym{font-weight:700}
   .muted{color:var(--muted)}
   .num{font-variant-numeric:tabular-nums}
-  .pos{color:var(--green)}
-  .neg{color:var(--red)}
   .t-good{color:var(--green)} .t-warn{color:var(--amber)} .t-bad{color:var(--red)}
 
   /* Global popover */
@@ -113,22 +110,21 @@
   </div>
 
 <script>
-// ===== Helpers =====
-const fmtNum = n => (n===null||n===undefined||isNaN(n)) ? 'N/D' : new Intl.NumberFormat('en-US',{maximumFractionDigits:2}).format(n);
-const fmtAbbrev = (n, prefix='') => {
-  if(n===null||n===undefined||isNaN(n)) return 'N/D';
-  const abs=Math.abs(n);
-  if(abs>=1e12) return prefix+(n/1e12).toFixed(2)+'T';
-  if(abs>=1e9) return prefix+(n/1e9).toFixed(2)+'B';
-  if(abs>=1e6) return prefix+(n/1e6).toFixed(2)+'M';
-  if(abs>=1e3) return prefix+(n/1e3).toFixed(2)+'K';
-  return prefix+n.toFixed(2);
-};
-const pct = n => (n===null||n===undefined||isNaN(n)) ? '—' : (n>=0?'+':'')+Number(n).toFixed(0)+'%';
-const mult = n => (n===null||n===undefined||isNaN(n)) ? '—' : 'x'+Number(n).toFixed(1);
-const money = n => (n===null||n===undefined||isNaN(n)) ? 'N/D' : '$'+fmtAbbrev(n);
+/* ===== Helpers (formats propres) ===== */
+const nf2 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const nf1 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
+const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
+  Math.abs(n) >= 1e12 ? nf2.format(n/1e12)+'T' :
+  Math.abs(n) >= 1e9  ? nf2.format(n/1e9)+'B'  :
+  Math.abs(n) >= 1e6  ? nf2.format(n/1e6)+'M'  :
+  Math.abs(n) >= 1e3  ? nf2.format(n/1e3)+'K'  :
+  nf2.format(n)
+);
+const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
+const fmtPct0 = n => (n==null||isNaN(n)) ? '—' : `${Math.round(+n)}%`;
+const fmtMult = n => (n==null||isNaN(n)) ? '—' : `x${nf1.format(+n)}`;
+const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
 
-// ===== Build table from data.json =====
 const tbody = document.querySelector('#screener tbody');
 const rows = [];
 let tokensData = [];
@@ -141,7 +137,6 @@ async function loadData(){
     document.getElementById('lastupdate').textContent = 'Dernière MàJ : '+(json.updated_at||'—');
     tbody.innerHTML='';
     tokensData.forEach(t=> addRow(t));
-    attachRowHandlers();
     applyThresholds();
   }catch(e){
     document.getElementById('lastupdate').textContent = 'Erreur de chargement de data.json';
@@ -151,69 +146,56 @@ async function loadData(){
 function addRow(t){
   const tr=document.createElement('tr');
   tr.dataset.token = `${t.symbol||''} · ${t.venue||''}`;
-  tr.dataset.price = t.price; tr.dataset.mc = money(t.mc); tr.dataset.fdv = t.fdv?money(t.fdv):'—';
-  tr.dataset.ath = (t.ath?('$'+t.ath):'—'); tr.dataset.pot = mult(t.ath_mult);
-  tr.dataset.volmc = (t.vol_mc_24!==undefined? t.vol_mc_24+'%':'—');
-  tr.dataset.vol7mc = (t.vol7_mc!==undefined? t.vol7_mc+'%':'—');
-  tr.dataset.rsid = t.rsi_d; tr.dataset.rsih4 = t.rsi_h4;
-  tr.dataset.narr = t.narrative||'—'; tr.dataset.launch = t.launch_date||'—';
-  tr.dataset.comp = (t.competitors||[]).join(', ')||'—'; tr.dataset.audits = (t.audits||[]).join(', ')||'—';
+  tr.dataset.price = (t.price!=null ? '$'+nf2.format(+t.price) : '—');
+  tr.dataset.mc = money(t.mc);
+  tr.dataset.fdv = t.fdv!=null ? money(t.fdv) : '—';
+  tr.dataset.ath = (t.ath!=null?('$'+nf2.format(+t.ath)):'—');
+  tr.dataset.pot = fmtMult(t.ath_mult);
+  tr.dataset.volmc = t.vol_mc_24;
+  tr.dataset.vol7mc = t.vol7_mc;
+  tr.dataset.rsid = t.rsi_d;
+  tr.dataset.rsih4 = t.rsi_h4;
+  tr.dataset.narr = t.narrative||'—';
+  tr.dataset.launch = t.launch_date||'—';
+  tr.dataset.comp = (t.competitors||[]).join(', ')||'—';
+  tr.dataset.audits = (t.audits||[]).join(', ')||'—';
   tr.dataset.unlock = t.next_unlock||'—';
-  tr.dataset.tvl = (t.tvl!==null&&t.tvl!==undefined)? money(t.tvl):'N/D';
-  tr.dataset.mctvl = (t.mc_tvl!==null&&t.mc_tvl!==undefined)? t.mc_tvl: '';
+  tr.dataset.tvl = t.tvl;
+  tr.dataset.mctvl = t.mc_tvl;
 
   tr.innerHTML = `
     <td><div class="token"><div class="logo"></div><div><span class="sym">${t.symbol||''}</span><span class="muted"> · ${t.venue||''}</span></div></div></td>
-    <td class="num">$${(t.price!==undefined?Number(t.price).toFixed(4):'—')}</td>
-    <td class="num">${pct(t.d24)}</td>
-    <td class="num">${pct(t.d7)}</td>
-    <td class="num hide-sm">${pct(t.d30)}</td>
+    <td class="num">${t.price!=null ? '$'+nf2.format(+t.price) : '—'}</td>
+    <td class="num">${fmtPct0(t.d24)}</td>
+    <td class="num">${fmtPct0(t.d7)}</td>
+    <td class="num hide-sm">${fmtPct0(t.d30)}</td>
     <td class="num">${money(t.mc)}</td>
-    <td class="num">${(t.tvl!==null&&t.tvl!==undefined)? money(t.tvl):'N/D'}</td>
-    <td class="num">${(t.mc_tvl!==null&&t.mc_tvl!==undefined)? t.mc_tvl : '—'}</td>
-    <td class="num hide-sm">${(t.vol_mc_24!==undefined? t.vol_mc_24+'%':'—')}</td>
-    <td class="num hide-sm">${(t.vol7_mc!==undefined? t.vol7_mc+'%':'—')}</td>
-    <td class="num">${(t.var_vol_7_over_30!==undefined? Number(t.var_vol_7_over_30).toFixed(2)+'×':'—')}</td>
-    <td class="num">${(t.rsi_d!==undefined? t.rsi_d:'—')}</td>
-    <td class="num hide-sm">${(t.rsi_h4!==undefined? t.rsi_h4:'—')}</td>
-    <td class="num hide-sm">${(t.ath!==undefined? '$'+t.ath:'—')}</td>
-    <td class="num">${(t.ath_mult!==undefined? 'x'+t.ath_mult:'—')}</td>`;
+    <td class="num">${t.tvl!=null ? money(t.tvl) : 'N/D'}</td>
+    <td class="num">${t.mc_tvl!=null ? fmtNum2(t.mc_tvl) : '—'}</td>
+    <td class="num hide-sm">${fmtPct(t.vol_mc_24)}</td>
+    <td class="num hide-sm">${fmtPct(t.vol7_mc)}</td>
+    <td class="num">${t.var_vol_7_over_30!=null ? nf2.format(+t.var_vol_7_over_30)+'×' : '—'}</td>
+    <td class="num">${t.rsi_d!=null ? nf2.format(+t.rsi_d) : '—'}</td>
+    <td class="num hide-sm">${t.rsi_h4!=null ? nf2.format(+t.rsi_h4) : '—'}</td>
+    <td class="num hide-sm">${t.ath!=null ? '$'+nf2.format(+t.ath) : '—'}</td>
+    <td class="num">${fmtMult(t.ath_mult)}</td>`;
   tbody.appendChild(tr);
   rows.push(tr);
 }
 
-// ===== Search =====
-const search = document.getElementById('search');
-search.addEventListener('input', ()=>{
-  const q = search.value.trim().toLowerCase();
+/* Search */
+document.getElementById('search').addEventListener('input', (e)=>{
+  const q = e.target.value.trim().toLowerCase();
   rows.forEach(r=>{ r.style.display = r.innerText.toLowerCase().includes(q)? '' : 'none'; });
 });
 
-// ===== Sort (toggle asc/desc) =====
-const headers = Array.from(document.querySelectorAll('thead th'));
-let sortState = {idx:null, dir:1};
-headers.forEach((th, idx)=> th.addEventListener('click', ()=>{
-  const tbodyEl = th.closest('table').querySelector('tbody');
-  const getVal=(tr)=> tr.children[idx].innerText.replace(/[,$%x×\s]/g,'');
-  const numeric = rows.every(r=> !isNaN(parseFloat(getVal(r))) );
-  const dir = (sortState.idx===idx? -sortState.dir : 1);
-  sortState={idx,dir};
-  const sorted = Array.from(tbodyEl.querySelectorAll('tr')).sort((a,b)=>{
-    const va=getVal(a), vb=getVal(b);
-    if(numeric){ return (parseFloat(va)||-Infinity) - (parseFloat(vb)||-Infinity); }
-    return va.localeCompare(vb);
-  });
-  if(dir<0) sorted.reverse();
-  sorted.forEach(tr=>tbodyEl.appendChild(tr));
-}));
-
-// ===== Threshold coloring (MC/TVL, Vol/MC 24h, RSI D) =====
+/* Thresholds */
 function applyThresholds(){
   rows.forEach(r=>{
-    const mctvl = parseFloat((r.dataset.mctvl||'').toString());
-    const volmc = parseFloat((r.dataset.volmc||'').toString());
-    const rsid = parseFloat((r.dataset.rsid||'').toString());
-    // MC/TVL cell index 7
+    const mctvl = parseFloat(r.dataset.mctvl);
+    const volmc = parseFloat(r.dataset.volmc);
+    const rsid  = parseFloat(r.dataset.rsid);
+
     const mctvlCell = r.children[7];
     if(mctvlCell){
       if(!isNaN(mctvl)){
@@ -224,16 +206,12 @@ function applyThresholds(){
         mctvlCell.classList.add('t-warn');
       }
     }
-    // Vol/MC 24h cell index 8
     const volCell = r.children[8];
-    if(volCell){
-      if(!isNaN(volmc)){
-        if(volmc >= 5) volCell.classList.add('t-good');
-        else if(volmc >= 2) volCell.classList.add('t-warn');
-        else volCell.classList.add('t-bad');
-      }
+    if(volCell && !isNaN(volmc)){
+      if(volmc >= 5) volCell.classList.add('t-good');
+      else if(volmc >= 2) volCell.classList.add('t-warn');
+      else volCell.classList.add('t-bad');
     }
-    // RSI D cell index 11
     const rsiCell = r.children[11];
     if(rsiCell && !isNaN(rsid)){
       if(rsid >= 70) rsiCell.classList.add('t-bad');
@@ -243,7 +221,7 @@ function applyThresholds(){
   });
 }
 
-// ===== Popover global (delay + lock + smart position) =====
+/* Popover (délégation, délai + lock) */
 const pop = document.getElementById('popover');
 const pTitle = document.getElementById('p-title');
 const pMarket = document.getElementById('p-market');
@@ -256,17 +234,19 @@ let showTimer=null, locked=false;
 
 function fillPop(r){
   pTitle.textContent = r.dataset.token || '';
+  const tvl = r.dataset.tvl ? money(+r.dataset.tvl) : 'N/D';
+  const mctvl = r.dataset.mctvl ? fmtNum2(+r.dataset.mctvl) : '—';
   pMarket.innerHTML = `
     <div>Prix</div><div class="num">${r.dataset.price||'—'}</div>
     <div>MC</div><div class="num">${r.dataset.mc||'—'}</div>
-    ${r.dataset.tvl?`<div>TVL</div><div class="num">${r.dataset.tvl}</div>`:''}
-    ${r.dataset.mctvl?`<div>MC/TVL</div><div class="num">${r.dataset.mctvl}</div>`:''}
+    <div>TVL</div><div class="num">${tvl}</div>
+    <div>MC/TVL</div><div class="num">${mctvl}</div>
     <div>ATH</div><div class="num">${r.dataset.ath||'—'}</div>
     <div>Potentiel x</div><div class="num">${r.dataset.pot||'—'}</div>
-    <div>Vol/MC (24h)</div><div class="num">${r.dataset.volmc||'—'}</div>
-    <div>Moy Vol7j/MC</div><div class="num">${r.dataset.vol7mc||'—'}</div>`;
+    <div>Vol/MC (24h)</div><div class="num">${fmtPct(+r.dataset.volmc)}</div>
+    <div>Moy Vol7j/MC</div><div class="num">${fmtPct(+r.dataset.vol7mc)}</div>`;
   pTech.innerHTML = `
-    <div>RSI Daily / H4</div><div class="num">${r.dataset.rsid||'—'} / ${r.dataset.rsih4||'—'}</div>
+    <div>RSI Daily / H4</div><div class="num">${r.dataset.rsid? nf2.format(+r.dataset.rsid):'—'} / ${r.dataset.rsih4? nf2.format(+r.dataset.rsih4):'—'}</div>
     <div>MA50</div><div class="num">—</div>`;
   pFonda.innerHTML = `
     <div>Narratif</div><div>${r.dataset.narr||'—'}</div>
@@ -276,7 +256,6 @@ function fillPop(r){
     <div>Audits</div><div>${r.dataset.audits||'—'}</div>
     <div>Unlock proche</div><div>${r.dataset.unlock||'—'}</div>
     <div>FDV</div><div class="num">${r.dataset.fdv||'—'}</div>`;
-  // Liens (optionnels)
   pLinks.innerHTML='';
 }
 
@@ -288,32 +267,20 @@ function positionPop(x,y){
   pop.style.left=left+'px'; pop.style.top=top+'px';
 }
 
-function attachRowHandlers(){
-  const allRows = Array.from(document.querySelectorAll('#screener tbody tr'));
-  allRows.forEach(r=>{
-    r.addEventListener('mouseenter', (e)=>{
-      if(locked) return; if(showTimer) clearTimeout(showTimer);
-      showTimer=setTimeout(()=>{
-        fillPop(r);
-        pop.style.display='block'; pop.style.transform='none'; pop.removeAttribute('aria-hidden');
-        positionPop(e.clientX, e.clientY);
-      }, 200);
-    });
-    r.addEventListener('mousemove', (e)=>{ if(pop.style.display==='block' && !locked) positionPop(e.clientX,e.clientY); });
-    r.addEventListener('mouseleave', ()=>{ if(!locked){ if(showTimer) clearTimeout(showTimer); hidePop(); } });
-    r.addEventListener('click', ()=>{ // toggle lock on row click
-      locked=!locked; pop.classList.toggle('locked', locked);
-      pLockBtn.textContent = locked ? '🔓 Déverrouiller' : '🔒 Verrouiller';
-      if(!locked) hidePop();
-    });
-  });
-}
-
+tbody.addEventListener('mouseover', (e)=>{
+  const r = e.target.closest('tr'); if(!r || locked) return;
+  if(showTimer) clearTimeout(showTimer);
+  showTimer = setTimeout(()=>{
+    fillPop(r);
+    pop.style.display='block'; pop.style.transform='none'; pop.removeAttribute('aria-hidden');
+    positionPop(e.clientX, e.clientY);
+  }, 200);
+});
+tbody.addEventListener('mousemove', (e)=>{ if(pop.style.display==='block' && !locked) positionPop(e.clientX,e.clientY); });
+tbody.addEventListener('mouseleave', ()=>{ if(!locked){ if(showTimer) clearTimeout(showTimer); hidePop(); } });
+tbody.addEventListener('click', (e)=>{ const r=e.target.closest('tr'); if(!r) return; locked=!locked; pop.classList.toggle('locked', locked); pLockBtn.textContent = locked ? '🔓 Déverrouiller' : '🔒 Verrouiller'; if(!locked) hidePop(); });
 function hidePop(){ if(locked) return; pop.style.display='none'; pop.style.transform='translate(-9999px,-9999px)'; pop.setAttribute('aria-hidden','true'); }
-
-pLockBtn.addEventListener('click', (e)=>{ e.stopPropagation(); locked=!locked; pop.classList.toggle('locked', locked); pLockBtn.textContent=locked?'🔓 Déverrouiller':'🔒 Verrouiller'; if(!locked) hidePop(); });
-
-document.addEventListener('click', (e)=>{ if(locked && !pop.contains(e.target)){ locked=false; pop.classList.remove('locked'); pLockBtn.textContent='🔒 Verrouiller'; hidePop(); } });
+document.getElementById('p-lock').addEventListener('click', (e)=>{ e.stopPropagation(); locked=!locked; pop.classList.toggle('locked', locked); pLockBtn.textContent=locked?'🔓 Déverrouiller':'🔒 Verrouiller'; if(!locked) hidePop(); });
 
 loadData();
 </script>
