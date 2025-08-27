@@ -1,6 +1,7 @@
 // fetch_and_build.js — Node 20
 // Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL auto-match, chain-first)
-// → CoinGecko (ATH + date, volumes 30j, RSI Daily 14, RSI H4 14) → data.json
+// → CoinGecko (ATH + date, volumes 30j, RSI Daily 14, RSI H4 14)
+// → Fallback OHLC (Binance/MEXC/CryptoCompare) pour remplir ATH/RSI en dernier ressort → data.json
 
 const fs = require('fs');
 const path = require('path');
@@ -23,7 +24,7 @@ const GECKO_OVERRIDES = {
   SNX:'synthetix-network-token', LDO:'lido-dao', AAVE:'aave', UNI:'uniswap', MKR:'maker',
   RUNE:'thorchain', CAKE:'pancakeswap-token', GMX:'gmx', DYDX:'dydx-chain', STETH:'staked-ether',
   MORPHO:'morpho-token',
-  ATH:'aethir' // ajuste/retire si besoin
+  ATH:'aethir' // ajuste si besoin
 };
 
 /* ---------- Aliases DeFiLlama (favorise les chains) ---------- */
@@ -289,6 +290,62 @@ function rsi14FromCloses(closes){
   return 100 - 100/(1+rs);
 }
 
+/* ========= Fallback OHLC (Binance/MEXC/CryptoCompare) pour ATH/RSI ========= */
+async function binanceKlines(symbol, interval='1d', limit=1000){
+  const pairs = [`${symbol}USDT`, `${symbol}USD`];
+  for(const p of pairs){
+    try{
+      const j = await fetchJSON(`https://api.binance.com/api/v3/klines?symbol=${p}&interval=${interval}&limit=${limit}`);
+      if(Array.isArray(j) && j.length){
+        return j.map(k => +k[4]).filter(Number.isFinite);
+      }
+    }catch(e){}
+  }
+  return [];
+}
+async function mexcKlines(symbol, interval='1d', limit=1000){
+  const pairs = [`${symbol}USDT`, `${symbol}USD`];
+  for(const p of pairs){
+    try{
+      const j = await fetchJSON(`https://api.mexc.com/api/v3/klines?symbol=${p}&interval=${interval}&limit=${limit}`);
+      if(Array.isArray(j) && j.length){
+        return j.map(k => +k[4]).filter(Number.isFinite);
+      }
+    }catch(e){}
+  }
+  return [];
+}
+async function cryptoCompareDaily(symbol, tsym='USD', limit=2000){
+  try{
+    const j = await fetchJSON(`https://min-api.cryptocompare.com/data/v2/histoday?fsym=${encodeURIComponent(symbol)}&tsym=${tsym}&limit=${limit}`);
+    return (j?.Data?.Data||[]).map(x => +x.close).filter(Number.isFinite);
+  }catch(e){ return []; }
+}
+async function cryptoCompareHourly(symbol, tsym='USD', limit=500){
+  try{
+    const j = await fetchJSON(`https://min-api.cryptocompare.com/data/v2/histohour?fsym=${encodeURIComponent(symbol)}&tsym=${tsym}&limit=${limit}`);
+    return (j?.Data?.Data||[]).map(x => +x.close).filter(Number.isFinite);
+  }catch(e){ return []; }
+}
+function to4hFromHourly(hourlyCloses){
+  if(!hourlyCloses || hourlyCloses.length < 4) return [];
+  const out=[]; for(let i=3;i<hourlyCloses.length;i+=4) out.push(hourlyCloses[i]); return out;
+}
+async function getCandlesFallback(symbol, venue){
+  const VEN = (venue||'').toUpperCase();
+  let daily=[], hourly=[];
+  if(VEN.includes('BINANCE')){
+    daily  = await binanceKlines(symbol, '1d', 1000);
+    hourly = await binanceKlines(symbol, '1h',  500);
+  }else if(VEN.includes('MEXC')){
+    daily  = await mexcKlines(symbol, '1d', 1000);
+    hourly = await mexcKlines(symbol, '1h',  500);
+  }
+  if(daily.length < 20)  daily  = await cryptoCompareDaily(symbol, 'USD', 2000);
+  if(hourly.length < 40) hourly = await cryptoCompareHourly(symbol, 'USD', 500);
+  return { daily, closes4h: to4hFromHourly(hourly) };
+}
+
 /* ================= build helpers ================= */
 function baseRow(it, q, info){
   const usd = q?.quote?.USD;
@@ -398,11 +455,36 @@ function writeDataJSON(rows){
         const rsiD = rsi14FromCloses(closesD);
         if(rsiD!=null) r.rsi_d = rsiD;
 
-        const closesH = await geckoMarketChartHourly(id, 7); // 7 jours / 1h
+        const closesH = await geckoMarketChartHourly(id, 7);
         const c4h = to4hCloses(closesH);
         const rsiH4 = rsi14FromCloses(c4h);
         if(rsiH4!=null) r.rsi_h4 = rsiH4;
       }catch(e){}
+    }
+
+    // ===== Fallback OHLC pour compléter si Gecko incomplet =====
+    for(const r of rows){
+      if((r.ath == null || r.rsi_d == null || r.rsi_h4 == null)){
+        try{
+          const { daily, closes4h } = await getCandlesFallback(r.symbol, r.venue);
+
+          if(r.ath == null && daily.length){
+            const athLocal = Math.max(...daily);
+            if(Number.isFinite(athLocal)){
+              r.ath = athLocal;
+              if(r.price && r.price > 0) r.ath_mult = r.ath / r.price;
+            }
+          }
+          if(r.rsi_d == null && daily.length){
+            const rsiD = rsi14FromCloses(daily.slice(-200));
+            if(rsiD != null) r.rsi_d = rsiD;
+          }
+          if(r.rsi_h4 == null && closes4h.length){
+            const rsiH4 = rsi14FromCloses(closes4h.slice(-200));
+            if(rsiH4 != null) r.rsi_h4 = rsiH4;
+          }
+        }catch(e){}
+      }
     }
 
     for(const r of rows){
