@@ -88,6 +88,23 @@
   .linkbar a{ color:#9ec5ff; text-decoration:none; margin-right:10px; font-size:12px; }
   .btn-ghost{ background:transparent; border:1px solid var(--outline); color:#cfe0ff; border-radius:10px; padding:6px 10px; cursor:pointer; font-size:12px; }
 
+  /* --- + D’infos : explications lisibles --- */
+  .sig-explain { margin:10px 0 0 0; padding:0; list-style:none; }
+  .sig-explain li { 
+    margin:0 0 12px 0; 
+    font-size:14px; 
+    line-height:1.45; 
+    color:var(--text);
+  }
+  .sig-explain .badge { 
+    margin-right:8px; 
+    vertical-align:middle;
+  }
+  .sig-explain p {
+    margin:6px 0 0 22px;
+    color:var(--muted);
+  }
+
   /* Drawer */
   #drawer{
     position:fixed; top:0; right:0; height:100vh;
@@ -241,7 +258,7 @@ const SIGNAL_EXPLAIN = {
   tvl_nd: "Pas de TVL fiable trouvée (match auto DeFiLlama) → ratios TVL incomplets.",
   mctvl_low: "Capitalisation proche de l’activité on-chain (moins de prime spéculative).",
   mctvl_high:"Capitalisation tendue vs TVL → prudence (surévaluation potentielle).",
-  mom_vol: "Momentum: le volume moyen 7j dépasse nettement le 30j.",
+  mom_vol: "Momentum : le volume moyen 7j dépasse nettement le 30j.",
   liq_good:"Liquidité saine : volume/MC sur 24h ≥ 5% (slippage réduit).",
   liq_low: "Faible liquidité : volume/MC sur 24h < 1% (slippage/mèches possibles).",
   upside:  "Potentiel si retour à l’ATH de market cap (neutralise la dilution).",
@@ -449,8 +466,10 @@ function renderCards(list){
 
     const badges = badgesHTML(sigs);
 
-    // Explications pliables
-    const explain = sigs.map(s=>`<li><span class="badge ${s.c}" style="margin-right:8px">${s.k}</span>${(SIGNAL_EXPLAIN[s.key]||'')}</li>`).join('') || '<li>Aucun signal spécifique.</li>';
+    // Explications : badge + paragraphe indenté
+    const explain = (sigs.length
+      ? sigs.map(s=>`<li><span class="badge ${s.c}">${s.k}</span><p>${(SIGNAL_EXPLAIN[s.key]||'')}</p></li>`).join('')
+      : '<li><p>Aucun signal spécifique.</p></li>');
 
     const div = document.createElement('div');
     div.className = 'sig-card';
@@ -473,7 +492,7 @@ function renderCards(list){
         </div>
       </div>
       <div id="${symId}" style="display:none;">
-        <ul class="sig-sub" style="margin:10px 0 0 0; padding-left:18px;">${explain}</ul>
+        <ul class="sig-explain">${explain}</ul>
         <div class="sig-sub" style="margin-top:8px;">Source TVL: ${t.tvl_source || '—'}</div>
       </div>
     `;
@@ -494,9 +513,20 @@ function renderCards(list){
 cardsToggle.addEventListener('change', ()=> renderCards(tokensData));
 
 /* Drawer resize */
+const drawer = document.getElementById('drawer');
 const resizer = document.getElementById('drawerResizer');
+const backdrop = document.getElementById('backdrop');
+const dTitle  = document.getElementById('d-title');
+const dMarket = document.getElementById('d-market');
+const dFonda  = document.getElementById('d-fonda');
+const dSocial = document.getElementById('d-social');
+const dLinks  = document.getElementById('d-links');
+const dSignals= document.getElementById('d-signals');
+const openBtn = document.getElementById('openDetails');
+const closeBtn = document.getElementById('closeDrawer');
+const pinBtn = document.getElementById('pinBtn');
+
 let drag=false, startX=0, startW=0;
-function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
 function setDrawerWidth(px){
   const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-min'))||300;
   const max = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-max'))||640;
@@ -516,6 +546,9 @@ function onStopDrag(){ if(!drag) return; drag=false; document.body.classList.rem
   window.removeEventListener('mousemove', onDrag); window.removeEventListener('mouseup', onStopDrag); }
 const savedW = parseInt(localStorage.getItem('drawerW'),10);
 if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
+
+function openDrawer(){ if(!drawerOpen){ drawer.classList.add('open'); backdrop.classList.add('show'); drawerOpen = true; } }
+function closeDrawer(){ if(drawerOpen){ drawer.classList.remove('open'); backdrop.classList.remove('show'); drawerOpen = false; } }
 
 /* Search & Refresh */
 document.getElementById('search').addEventListener('input', (e)=>{
