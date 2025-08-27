@@ -22,7 +22,6 @@
 
   .card{background:var(--panel);border:1px solid var(--outline);border-radius:14px;box-shadow:0 10px 24px rgba(0,0,0,.35);overflow:hidden}
 
-  /* Tableau pleine largeur + scroll propre si besoin */
   .table-scroller{width:100%;overflow:auto}
   table{width:100%;border-collapse:separate;border-spacing:0; min-width:1200px;}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));color:#cfe0ff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 10px}
@@ -35,7 +34,7 @@
   .num{font-variant-numeric:tabular-nums; white-space:nowrap;}
   .t-good{color:var(--green)} .t-warn{color:var(--amber)} .t-bad{color:var(--red)}
 
-  /* Drawer overlay (n’affecte pas la largeur du tableau) */
+  /* Drawer overlay */
   #drawer{
     position:fixed; top:0; right:0; height:100vh;
     width:var(--drawer-w);
@@ -52,16 +51,10 @@
   .kv{display:grid;grid-template-columns:auto 1fr;gap:6px;font-size:14px}
   .kv .k{color:var(--muted)}
   .links a{color:#9ec5ff;text-decoration:none;margin-right:8px}
-
-  /* poignée de redimensionnement */
-  #drawer .resizer{
-    position:absolute; left:-6px; top:0; width:6px; height:100%;
-    cursor:col-resize; background:transparent;
-  }
+  #drawer .resizer{position:absolute; left:-6px; top:0; width:6px; height:100%; cursor:col-resize; background:transparent;}
   #drawer .resizer:hover{ background:rgba(255,255,255,.06); }
   body.resizing #drawer .resizer{ background:rgba(255,255,255,.1); }
 
-  /* backdrop (optionnel) */
   #backdrop{
     position:fixed; inset:0; background:rgba(0,0,0,.25);
     opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:900;
@@ -109,7 +102,7 @@
             <th>RSI D</th>
             <th>RSI H4</th>
             <th class="hide-sm">ATH</th>
-            <th>Potentiel x</th>
+            <th>x ATH Mcap</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -118,7 +111,6 @@
   </div>
 </div>
 
-<!-- Drawer overlay -->
 <div id="backdrop"></div>
 <aside id="drawer" aria-hidden="true">
   <div class="resizer" id="drawerResizer" title="Redimensionner"></div>
@@ -143,7 +135,6 @@
 </aside>
 
 <script>
-/* ==== Helpers ==== */
 const nf2 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const nf1 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
@@ -158,22 +149,17 @@ const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
 const fmtMult = n => (n==null||isNaN(n)) ? '—' : `x${nf1.format(+n)}`;
 const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
 
-/* ==== State ==== */
 const tbody = document.querySelector('#screener tbody');
 const rows = [];
-let tokensData = [];
 let pinned = false;
-let selectedRow = null;
 
-/* ==== Load data ==== */
 async function loadData(){
   try{
     const res = await fetch('data.json', { cache:'no-store' });
     const json = await res.json();
-    tokensData = json.tokens||[];
     document.getElementById('lastupdate').textContent = 'Dernière MàJ : ' + (json.updated_at||'—');
     tbody.innerHTML=''; rows.length=0;
-    tokensData.forEach(t=> addRow(t));
+    (json.tokens||[]).forEach(t=> addRow(t));
     applyThresholds();
   }catch(e){
     document.getElementById('lastupdate').textContent = 'Erreur de chargement de data.json';
@@ -188,7 +174,10 @@ function addRow(t){
   tr.dataset.mc = money(t.mc);
   tr.dataset.fdv = t.fdv!=null ? money(t.fdv) : '—';
   tr.dataset.ath = (t.ath!=null?('$'+nf2.format(+t.ath)):'—');
-  tr.dataset.pot = fmtMult(t.ath_mult);
+  tr.dataset.athmc = t.ath_mc!=null ? money(t.ath_mc) : '—';
+  tr.dataset.xathmc = t.x_ath_mc;
+  tr.dataset.pricetarget = (t.price_target_ath_mc!=null ? '$'+nf2.format(+t.price_target_ath_mc) : '—');
+
   tr.dataset.volmc = t.vol_mc_24;
   tr.dataset.vol7tvl = t.vol7_tvl;
   tr.dataset.varv = t.var_vol_7_over_30;
@@ -222,7 +211,7 @@ function addRow(t){
     <td class="num">${t.rsi_d!=null ? nf2.format(+t.rsi_d) : '—'}</td>
     <td class="num">${t.rsi_h4!=null ? nf2.format(+t.rsi_h4) : '—'}</td>
     <td class="num hide-sm">${t.ath!=null ? '$'+nf2.format(+t.ath) : '—'}</td>
-    <td class="num">${fmtMult(t.ath_mult)}</td>`;
+    <td class="num">${t.x_ath_mc!=null ? 'x'+nf1.format(+t.x_ath_mc) : '—'}</td>`;
 
   tr.addEventListener('click', ()=>{ selectRow(tr, true); });
   tr.addEventListener('mouseenter', ()=>{ if(!pinned) selectRow(tr, false); });
@@ -231,14 +220,6 @@ function addRow(t){
   rows.push(tr);
 }
 
-function selectRow(tr, openDrawerIfClosed){
-  selectedRow = tr;
-  rows.forEach(r => r.classList.toggle('selected', r===tr));
-  renderDetails(tr);
-  if(openDrawerIfClosed) openDrawer();
-}
-
-/* Color thresholds */
 function applyThresholds(){
   rows.forEach(r=>{
     const mctvl = parseFloat(r.dataset.mctvl);
@@ -273,7 +254,7 @@ function applyThresholds(){
   });
 }
 
-/* Drawer logic */
+/* Drawer */
 const drawer = document.getElementById('drawer');
 const backdrop = document.getElementById('backdrop');
 const openBtn = document.getElementById('openDetails');
@@ -293,14 +274,14 @@ pinBtn.addEventListener('click', ()=>{
   pinBtn.textContent = pinned ? '📌 Épinglé' : '📌 Épingler';
 });
 
-/* Drawer resize (desktop) */
+/* Drawer resize */
 const resizer = document.getElementById('drawerResizer');
 let drag=false, startX=0, startW=0;
 function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
 function setDrawerWidth(px){
   const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-min'))||280;
   const max = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-max'))||640;
-  const w = clamp(px, min, Math.min(max, window.innerWidth-240)); // garde au moins 240px de tableau visible
+  const w = clamp(px, min, Math.min(max, window.innerWidth-240));
   document.documentElement.style.setProperty('--drawer-w', w+'px');
   localStorage.setItem('drawerW', String(w));
 }
@@ -313,7 +294,7 @@ resizer.addEventListener('mousedown', (e)=>{
 });
 function onDrag(e){
   if(!drag) return;
-  const dx = startX - e.clientX; // on tire vers la gauche pour élargir
+  const dx = startX - e.clientX;
   setDrawerWidth(startW + dx);
 }
 function onStopDrag(){
@@ -322,11 +303,10 @@ function onStopDrag(){
   window.removeEventListener('mousemove', onDrag);
   window.removeEventListener('mouseup', onStopDrag);
 }
-/* restore width */
 const savedW = parseInt(localStorage.getItem('drawerW'),10);
 if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
 
-/* Detail content */
+/* Details */
 const dTitle  = document.getElementById('d-title');
 const dMarket = document.getElementById('d-market');
 const dFonda  = document.getElementById('d-fonda');
@@ -344,8 +324,10 @@ function renderDetails(r){
     <div class="k">Market Cap</div><div class="num">${r.dataset.mc||'—'}</div>
     <div class="k">TVL</div><div class="num">${tvl}</div>
     <div class="k">MC/TVL</div><div class="num">${mctvl}</div>
-    <div class="k">ATH</div><div class="num">${r.dataset.ath||'—'}</div>
-    <div class="k">Potentiel x</div><div class="num">${r.dataset.pot||'—'}</div>
+    <div class="k">ATH (prix)</div><div class="num">${r.dataset.ath||'—'}</div>
+    <div class="k">ATH Mcap</div><div class="num">${r.dataset.athmc||'—'}</div>
+    <div class="k">x ATH Mcap</div><div class="num">${r.dataset.xathmc? 'x'+nf1.format(+r.dataset.xathmc):'—'}</div>
+    <div class="k">Prix cible (ATH Mcap)</div><div class="num">${r.dataset.pricetarget||'—'}</div>
     <div class="k">Vol/MC (24h)</div><div class="num">${(isNaN(parseFloat(r.dataset.volmc))?'—':(nf2.format(parseFloat(r.dataset.volmc))+'%'))}</div>
     <div class="k">Moy Vol7j/TVL</div><div class="num">${(isNaN(parseFloat(r.dataset.vol7tvl))?'—':(nf2.format(parseFloat(r.dataset.vol7tvl))+'%'))}</div>
     <div class="k">Var Vol 7j/30j</div><div class="num">${r.dataset.varv? nf2.format(+r.dataset.varv)+'×':'—'}</div>
@@ -369,13 +351,11 @@ function renderDetails(r){
   ].filter(Boolean).join(' ');
 }
 
-/* Search */
+/* Search & Refresh */
 document.getElementById('search').addEventListener('input', (e)=>{
   const q = e.target.value.trim().toLowerCase();
   rows.forEach(r=>{ r.style.display = r.innerText.toLowerCase().includes(q)? '' : 'none'; });
 });
-
-/* Refresh */
 document.getElementById('btnRefresh').addEventListener('click', loadData);
 const autoToggle = document.getElementById('autoToggle');
 let autoTimer=null;
@@ -384,6 +364,13 @@ function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } 
 autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
 if(autoToggle.checked) startAuto();
 autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
+
+/* Row selection */
+function selectRow(tr, openDrawerIfClosed){
+  rows.forEach(r => r.classList.toggle('selected', r===tr));
+  renderDetails(tr);
+  if(openDrawerIfClosed) openDrawer();
+}
 
 /* Init */
 loadData();
