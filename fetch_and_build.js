@@ -1,7 +1,7 @@
 // fetch_and_build.js — Node 20
-// Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL auto-match, chain-first)
-// → CoinGecko (ATH + date, volumes 30j, RSI Daily 14, RSI H4 14)
-// → Fallback OHLC (Binance/MEXC/CryptoCompare) pour remplir ATH/RSI en dernier ressort → data.json
+// Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL)
+// → CoinGecko (ATH prix + date, volumes 30j, RSI D/H4, ATH Market Cap via market_caps=MAX)
+// → Fallback OHLC (Binance/MEXC/CryptoCompare) pour ATH/RSI → data.json
 
 const fs = require('fs');
 const path = require('path');
@@ -15,7 +15,6 @@ const CMC_API_KEY = process.env.CMC_API_KEY || '';
 const QUOTES = ['USDT','USDC','USD','BTC','ETH','EUR','DAI'];
 const SEP_RE = /[:\-_/]/;
 
-/* ---------- CoinGecko overrides ---------- */
 const GECKO_OVERRIDES = {
   BTC:'bitcoin', ETH:'ethereum', BNB:'binancecoin', SOL:'solana', ADA:'cardano', XRP:'ripple',
   DOT:'polkadot', LINK:'chainlink', MATIC:'polygon', POL:'polygon', AVAX:'avalanche-2',
@@ -24,10 +23,9 @@ const GECKO_OVERRIDES = {
   SNX:'synthetix-network-token', LDO:'lido-dao', AAVE:'aave', UNI:'uniswap', MKR:'maker',
   RUNE:'thorchain', CAKE:'pancakeswap-token', GMX:'gmx', DYDX:'dydx-chain', STETH:'staked-ether',
   MORPHO:'morpho-token',
-  ATH:'aethir' // ajuste si besoin
+  ATH:'aethir'
 };
 
-/* ---------- Aliases DeFiLlama (favorise les chains) ---------- */
 const CHAIN_ALIASES = {
   ETH:'Ethereum', WETH:'Ethereum', STETH:'Ethereum',
   AVAX:'Avalanche', OP:'Optimism', ARB:'Arbitrum', BNB:'BSC',
@@ -37,7 +35,7 @@ const CHAIN_ALIASES = {
   ETC:'Ethereum Classic'
 };
 
-/* ================= Utils ================= */
+/*================== utils ==================*/
 function parseCSV(text){
   const rows=[]; let row=[], col='', inQ=false;
   for(let i=0;i<text.length;i++){
@@ -57,7 +55,7 @@ function normalizeAsset(raw){
   s = s.split(/\s+/)[0];
   let venue='', base=s;
   if(s.includes(':')){ const p=s.split(':'); if(p.length>=2){ venue=(p[0]||'').toUpperCase(); base=p[1]; } }
-  const segs=base.split(SEP_RE).filter(Boolean);
+  const segs=base.split(/[:\-_/]/).filter(Boolean);
   base = segs[segs.length-1] || base;
   if(/^0x[0-9a-fA-F]{4,}$/.test(base)) return { symbol: base.toUpperCase(), venue };
   base = base.toUpperCase().replace(/(PERP|\d+L|\d+S)$/,'');
@@ -89,7 +87,7 @@ async function fetchJSON(url, init){ const r=await fetch(url,init); const j=awai
 const avg = a => (!a||!a.length) ? null : a.reduce((x,y)=>x+y,0)/a.length;
 const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
 
-/* ================= 1) Sheet → {symbol, alert_date} ================= */
+/*================== 1) Sheet ==================*/
 async function readRecentFromSheet(){
   const csv = await fetchTextWithRetry(SHEET_CSV_URL);
   const rows = parseCSV(csv);
@@ -118,7 +116,7 @@ async function readRecentFromSheet(){
   return recent;
 }
 
-/* ================= 2) CMC quotes + info ================= */
+/*================== 2) CMC ==================*/
 async function cmcQuotesBySymbol(symbols){
   if(!CMC_API_KEY) return {};
   const headers = { 'X-CMC_PRO_API_KEY': CMC_API_KEY };
@@ -154,7 +152,7 @@ async function cmcInfoBySymbol(symbols){
   return out;
 }
 
-/* ================= 3) DeFiLlama (TVL auto-match) ================= */
+/*================== 3) DeFiLlama TVL ==================*/
 let LLAMA_PROTOCOLS=null, LLAMA_CHAINS=null;
 async function loadLlamaCatalogs(){
   if(!LLAMA_CHAINS)    LLAMA_CHAINS    = await fetchJSON('https://api.llama.fi/chains');
@@ -202,7 +200,7 @@ async function getTVLForSymbol(symbol){
   return { tvl: null, via: null };
 }
 
-/* ================= 4) CoinGecko (ATH, vols, RSI D & H4) ================= */
+/*================== 4) CoinGecko (ATH/vols/RSI + ATH Mcap) ==================*/
 async function geckoFindId(symbol, cmcInfo){
   if(GECKO_OVERRIDES[symbol]) return GECKO_OVERRIDES[symbol];
 
@@ -253,9 +251,16 @@ async function geckoMarketChart(id, days, interval='daily'){
     const j = await fetchJSON(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${days}&interval=${interval}`);
     return {
       vols: (j?.total_volumes||[]).map(v=>+v[1]).filter(Number.isFinite),
-      closes: (j?.prices||[]).map(p=>+p[1]).filter(Number.isFinite)
+      closes: (j?.prices||[]).map(p=>+p[1]).filter(Number.isFinite),
+      caps: (j?.market_caps||[]).map(c=>+c[1]).filter(Number.isFinite)
     };
-  }catch(e){ return { vols:[], closes:[] }; }
+  }catch(e){ return { vols:[], closes:[], caps:[] }; }
+}
+async function geckoMarketCapsMax(id){ // days=max pour choper ATH Mcap
+  try{
+    const j = await fetchJSON(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=max&interval=daily`);
+    return (j?.market_caps||[]).map(c=>+c[1]).filter(Number.isFinite);
+  }catch(e){ return []; }
 }
 async function geckoMarketChartHourly(id, days=7){
   try{
@@ -290,7 +295,7 @@ function rsi14FromCloses(closes){
   return 100 - 100/(1+rs);
 }
 
-/* ========= Fallback OHLC (Binance/MEXC/CryptoCompare) pour ATH/RSI ========= */
+/*==== Fallback OHLC (Binance/MEXC/CryptoCompare) pour ATH/RSI ====*/
 async function binanceKlines(symbol, interval='1d', limit=1000){
   const pairs = [`${symbol}USDT`, `${symbol}USD`];
   for(const p of pairs){
@@ -327,10 +332,6 @@ async function cryptoCompareHourly(symbol, tsym='USD', limit=500){
     return (j?.Data?.Data||[]).map(x => +x.close).filter(Number.isFinite);
   }catch(e){ return []; }
 }
-function to4hFromHourly(hourlyCloses){
-  if(!hourlyCloses || hourlyCloses.length < 4) return [];
-  const out=[]; for(let i=3;i<hourlyCloses.length;i+=4) out.push(hourlyCloses[i]); return out;
-}
 async function getCandlesFallback(symbol, venue){
   const VEN = (venue||'').toUpperCase();
   let daily=[], hourly=[];
@@ -343,10 +344,11 @@ async function getCandlesFallback(symbol, venue){
   }
   if(daily.length < 20)  daily  = await cryptoCompareDaily(symbol, 'USD', 2000);
   if(hourly.length < 40) hourly = await cryptoCompareHourly(symbol, 'USD', 500);
-  return { daily, closes4h: to4hFromHourly(hourly) };
+  const closes4h = to4hCloses(hourly);
+  return { daily, closes4h };
 }
 
-/* ================= build helpers ================= */
+/*================== build helpers ==================*/
 function baseRow(it, q, info){
   const usd = q?.quote?.USD;
   const urls = info?.urls || {};
@@ -370,20 +372,25 @@ function baseRow(it, q, info){
     tvl: null,
     mc_tvl: null,
 
+    // volumes/ratios
     vol_mc_24: (usd?.volume_24h && usd?.market_cap) ? (usd.volume_24h/usd.market_cap*100) : null,
-
     vol7_avg: null,
     vol30_avg: null,
     vol7_mc: null,
     vol7_tvl: null,
     var_vol_7_over_30: null,
 
+    // RSI & ATH prix
     rsi_d: null,
     rsi_h4: null,
-
     ath: null,
     ath_date: null,
-    ath_mult: null,
+    ath_mult: null, // x ATH (prix) — gardé pour référence
+
+    // ATH Market Cap & potentiel
+    ath_mc: null,
+    x_ath_mc: null,
+    price_target_ath_mc: null,
 
     narrative: tags.length ? tags.join(', ') : null,
     launch_date: info?.date_added || null,
@@ -407,7 +414,7 @@ function writeDataJSON(rows){
   console.log(`✅ Écrit ${OUTPUT} avec ${rows.length} tokens.`);
 }
 
-/* ================= MAIN ================= */
+/*================== MAIN ==================*/
 (async()=>{
   try{
     const recent = await readRecentFromSheet();
@@ -430,7 +437,7 @@ function writeDataJSON(rows){
       }catch(e){}
     }
 
-    // CoinGecko enrich
+    // CoinGecko enrich (volumes 30j, RSI D/H4, ATH prix, ATH market cap)
     for(const r of rows){
       try{
         const id = await geckoFindId(r.symbol, cmcI[r.symbol]);
@@ -443,26 +450,39 @@ function writeDataJSON(rows){
         if(det.twitter_followers != null) r.twitter_followers = det.twitter_followers;
         if(det.genesis_date && !r.launch_date) r.launch_date = det.genesis_date;
 
-        const mc = await geckoMarketChart(id, 30, 'daily');
-        const v7 = avg(mc.vols.slice(-7)), v30 = avg(mc.vols.slice(-30));
+        // 30 jours: volumes/close pour ratios vol7/30 + RSI daily si besoin
+        const mc30 = await geckoMarketChart(id, 30, 'daily');
+        const v7 = avg(mc30.vols.slice(-7)), v30 = avg(mc30.vols.slice(-30));
         if(v7!=null) r.vol7_avg = v7;
         if(v30!=null) r.vol30_avg = v30;
         if(v7 && v30) r.var_vol_7_over_30 = v7 / v30;
         if(r.mc && v7)  r.vol7_mc  = v7 / r.mc * 100;
         if(r.tvl && v7) r.vol7_tvl = v7 / r.tvl * 100;
 
-        const closesD = mc.closes.length ? mc.closes : (await geckoMarketChart(id, 120, 'daily')).closes;
+        const closesD = mc30.closes.length ? mc30.closes : (await geckoMarketChart(id, 120, 'daily')).closes;
         const rsiD = rsi14FromCloses(closesD);
         if(rsiD!=null) r.rsi_d = rsiD;
 
+        // RSI H4 via hourly → 4h
         const closesH = await geckoMarketChartHourly(id, 7);
         const c4h = to4hCloses(closesH);
         const rsiH4 = rsi14FromCloses(c4h);
         if(rsiH4!=null) r.rsi_h4 = rsiH4;
+
+        // ATH Market Cap (days=max)
+        const caps = await geckoMarketCapsMax(id);
+        if(caps && caps.length){
+          const athMc = Math.max(...caps);
+          if(Number.isFinite(athMc)){
+            r.ath_mc = athMc;
+            if(r.mc && r.mc > 0) r.x_ath_mc = athMc / r.mc;
+            if(r.price && r.x_ath_mc) r.price_target_ath_mc = r.price * r.x_ath_mc;
+          }
+        }
       }catch(e){}
     }
 
-    // ===== Fallback OHLC pour compléter si Gecko incomplet =====
+    // Fallbacks ATH/RSI si Gecko incomplet
     for(const r of rows){
       if((r.ath == null || r.rsi_d == null || r.rsi_h4 == null)){
         try{
