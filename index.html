@@ -19,15 +19,13 @@
   .toolbar input,.btn{background:var(--panel-2);color:var(--text);border:1px solid var(--outline);border-radius:10px;padding:8px 10px}
   .btn{cursor:pointer}
   .note{color:var(--muted);font-size:12px;margin:6px 0 14px}
-
-  /* debug */
   #debug{display:none;margin:10px 0;padding:10px;border:1px dashed #ff6b6b;color:#ffb3b3;background:#381e1e;border-radius:10px;white-space:pre-wrap}
   #debug.show{display:block}
 
   .card{background:var(--panel);border:1px solid var(--outline);border-radius:14px;box-shadow:0 10px 24px rgba(0,0,0,.35);overflow:hidden}
 
   .table-scroller{width:100%;overflow:auto}
-  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1260px;}
+  table{width:100%;border-collapse:separate;border-spacing:0; min-width:980px;}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));color:#cfe0ff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 10px}
   tbody td{padding:10px 10px;border-bottom:1px solid #0f1422; vertical-align:middle;}
   tbody tr:hover{background:rgba(255,255,255,.03)}
@@ -37,6 +35,12 @@
   .muted{color:var(--muted)}
   .num{font-variant-numeric:tabular-nums; white-space:nowrap;}
   .t-good{color:var(--green)} .t-warn{color:var(--amber)} .t-bad{color:var(--red)}
+
+  /* Cacher les colonnes “secondaires” sur écrans moyens/petits */
+  @media (max-width: 1280px){
+    .col-optional{ display:none; }
+    table{min-width: 980px;}
+  }
 
   /* Badges (signaux) */
   .badges{display:flex;gap:6px;flex-wrap:wrap}
@@ -49,6 +53,17 @@
   .b-info{ border-color: rgba(106,167,255,.4); box-shadow: inset 0 0 0 999px rgba(106,167,255,.08);}
   .b-warn{ border-color: rgba(255,200,87,.5); box-shadow: inset 0 0 0 999px rgba(255,200,87,.10);}
   .b-bad{  border-color: rgba(255,107,107,.5); box-shadow: inset 0 0 0 999px rgba(255,107,107,.10);}
+
+  /* Cartes de signaux sous le tableau */
+  #cardsWrap{ display:none; margin-top:14px; }
+  #cardsWrap.show{ display:block; }
+  .grid{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; }
+  @media (max-width:1000px){ .grid{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
+  @media (max-width:640px){ .grid{ grid-template-columns: 1fr; } }
+  .sig-card{ background:var(--panel); border:1px solid var(--outline); border-radius:12px; padding:12px; }
+  .sig-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
+  .sig-title{ font-weight:700; }
+  .sig-sub{ color:var(--muted); font-size:12px; }
 
   /* Drawer */
   #drawer{
@@ -70,17 +85,20 @@
   #drawer .resizer{position:absolute; left:-6px; top:0; width:6px; height:100%; cursor:col-resize; background:transparent;}
   #drawer .resizer:hover{ background:rgba(255,255,255,.06); }
   body.resizing #drawer .resizer{ background:rgba(255,255,255,.1); }
-
-  #backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.25);
-    opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:900; }
+  #backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.25); opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:900; }
   #backdrop.show{ opacity:1; pointer-events:auto; }
 
   @media (max-width:980px){
-    table{min-width:1120px}
     #drawer{ width:100%; height:70vh; left:0; right:auto; bottom:0; top:auto; border-left:0; border-top:1px solid var(--outline); transform:translateY(100%); }
     #drawer.open{ transform:translateY(0); }
     #drawer .resizer{ display:none; }
   }
+
+  /* Légende */
+  .legend{ margin-top:14px; background:var(--panel); border:1px solid var(--outline); border-radius:12px; padding:12px; }
+  .legend h4{ margin:0 0 8px 0; }
+  .legend ul{ margin:0; padding-left:18px; color:var(--muted); }
+  .legend li{ margin:6px 0; }
 </style>
 </head>
 <body>
@@ -92,6 +110,7 @@
       <button id="openDetails" class="btn">🗂️ Détails</button>
       <button id="btnRefresh" class="btn">↻ Rafraîchir</button>
       <label><input type="checkbox" id="autoToggle"> Auto-refresh (60s)</label>
+      <label><input type="checkbox" id="cardsToggle"> Afficher cartes de signaux</label>
     </div>
   </header>
   <div class="note" id="lastupdate">Chargement…</div>
@@ -106,19 +125,18 @@
             <th style="white-space:nowrap">Date</th>
             <th>Prix</th>
             <th>Δ24h</th>
-            <th class="hide-sm">Δ7j</th>
-            <th class="hide-sm">Δ30j</th>
+            <th class="col-optional">Δ7j</th>
+            <th class="col-optional">Δ30j</th>
             <th>MC</th>
             <th>TVL</th>
             <th>MC/TVL</th>
-            <th class="hide-sm">Vol/MC (24h)</th>
-            <th class="hide-sm">Moy Vol7j/TVL</th>
-            <th>Var Vol 7j/30j</th>
+            <th class="col-optional">Vol/MC (24h)</th>
+            <th class="col-optional">Moy Vol7j/TVL</th>
+            <th class="col-optional">Var Vol 7j/30j</th>
             <th>RSI D</th>
-            <th>RSI H4</th>
-            <th class="hide-sm">ATH</th>
+            <th class="col-optional">RSI H4</th>
+            <th class="col-optional">ATH</th>
             <th>x ATH Mcap</th>
-            <th>Signaux</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -126,8 +144,28 @@
       <div class="note" id="emptyMsg" style="display:none;padding:10px;">Aucune ligne à afficher (data.json vide ?)</div>
     </div>
   </div>
+
+  <!-- Cartes de signaux -->
+  <div id="cardsWrap">
+    <div class="grid" id="cardsGrid"></div>
+  </div>
+
+  <!-- Légende & explications -->
+  <div class="legend">
+    <h4>À propos des signaux</h4>
+    <ul>
+      <li><span class="badge b-good">💎 MC/TVL ≤ 3</span> → valeur “efficace” : la capitalisation n’est pas trop éloignée des TVL (moins de frottement spéculatif).</li>
+      <li><span class="badge b-bad">MC/TVL &gt; 12</span> → capitalisation “tendue” par rapport à l’activité on-chain → prudence.</li>
+      <li><span class="badge b-info">⚡ Vol7/30 ≥ 1.5</span> → montée d’activité récente (momentum) par rapport à la moyenne 30j.</li>
+      <li><span class="badge b-good">💧 Vol/MC ≥ 5%</span> → liquidité saine (faible slippage). <span class="badge b-warn">Illiquid &lt; 1%</span> → attention aux mèches.</li>
+      <li><span class="badge b-info">🎯 x ≥ 3 ATH Mcap</span> → “upside” potentiel si le projet revisite son ATH de market cap (neutralise la dilution).</li>
+      <li><span class="badge b-info">🧊 RSI D ≤ 35</span> → conditions de survente possibles ; <span class="badge b-bad">🟥 RSI D ≥ 70</span> → surachat potentiel.</li>
+      <li><span class="badge b-bad">TVL N/D</span> → pas de TVL fiable trouvée (match auto DeFiLlama) → les ratios TVL sont incomplets.</li>
+    </ul>
+  </div>
 </div>
 
+<!-- Drawer -->
 <div id="backdrop"></div>
 <aside id="drawer" aria-hidden="true">
   <div class="resizer" id="drawerResizer" title="Redimensionner"></div>
@@ -183,7 +221,6 @@ const emptyMsg = document.getElementById('emptyMsg');
 const rows = [];
 let tokensData = [];
 let pinned = false;
-let selectedRow = null;
 let drawerOpen = false;
 
 /* ==== Signals ==== */
@@ -213,23 +250,23 @@ async function loadData(){
     const json = await res.json().catch(e=>{ throw new Error('JSON parse error: '+e.message); });
     tokensData = json.tokens||[];
     document.getElementById('lastupdate').textContent = 'Dernière MàJ : ' + (json.updated_at||'—');
-
-    tbody.innerHTML=''; rows.length=0;
-    if(!tokensData.length){ emptyMsg.style.display='block'; console.log('0 rows.'); return; }
-    emptyMsg.style.display='none';
-
-    tokensData.forEach(t=> addRow(t));
-    applyThresholds();
-    console.log('Rendered rows:', rows.length);
+    renderTable(tokensData);
+    renderCards(tokensData);
   }catch(e){
     debug('loadData() failed: '+ (e.message||e));
     document.getElementById('lastupdate').textContent = 'Erreur de chargement de data.json';
   }
 }
 
+function renderTable(list){
+  tbody.innerHTML=''; rows.length=0;
+  if(!list.length){ emptyMsg.style.display='block'; return; }
+  emptyMsg.style.display='none';
+  list.forEach(t=> addRow(t));
+  applyThresholds();
+}
 function addRow(t){
   const tr=document.createElement('tr');
-
   tr.dataset.symbol = t.symbol || '';
   tr.dataset.venue = t.venue || '';
   tr.dataset.price = (t.price!=null ? '$'+nf2.format(+t.price) : '—');
@@ -256,27 +293,23 @@ function addRow(t){
   tr.dataset.gh = t.github || '';
   tr.dataset.wp = t.whitepaper || '';
 
-  const nf1 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 }); // local scope for x label
-  const sigs = buildSignals(t);
-
   tr.innerHTML = `
     <td><div class="token"><div class="logo"></div><div><span class="sym">${t.symbol||''}</span><span class="muted"> · ${t.venue||''}</span></div></div></td>
     <td class="num">${t.alert_date || '—'}</td>
     <td class="num">${t.price!=null ? '$'+nf2.format(+t.price) : '—'}</td>
     <td class="num">${fmtPct0(t.d24)}</td>
-    <td class="num hide-sm">${fmtPct0(t.d7)}</td>
-    <td class="num hide-sm">${fmtPct0(t.d30)}</td>
+    <td class="num col-optional">${fmtPct0(t.d7)}</td>
+    <td class="num col-optional">${fmtPct0(t.d30)}</td>
     <td class="num">${money(t.mc)}</td>
     <td class="num">${t.tvl!=null ? money(t.tvl) : 'N/D'}</td>
     <td class="num">${t.mc_tvl!=null ? fmtNum2(t.mc_tvl) : '—'}</td>
-    <td class="num hide-sm">${fmtPct(t.vol_mc_24)}</td>
-    <td class="num hide-sm">${fmtPct(t.vol7_tvl)}</td>
-    <td class="num">${t.var_vol_7_over_30!=null ? nf2.format(+t.var_vol_7_over_30)+'×' : '—'}</td>
+    <td class="num col-optional">${fmtPct(t.vol_mc_24)}</td>
+    <td class="num col-optional">${fmtPct(t.vol7_tvl)}</td>
+    <td class="num col-optional">${t.var_vol_7_over_30!=null ? nf2.format(+t.var_vol_7_over_30)+'×' : '—'}</td>
     <td class="num">${t.rsi_d!=null ? nf2.format(+t.rsi_d) : '—'}</td>
-    <td class="num">${t.rsi_h4!=null ? nf2.format(+t.rsi_h4) : '—'}</td>
-    <td class="num hide-sm">${t.ath!=null ? '$'+nf2.format(+t.ath) : '—'}</td>
-    <td class="num">${t.x_ath_mc!=null ? 'x'+nf1.format(+t.x_ath_mc) : '—'}</td>
-    <td>${signalsHTML(sigs)}</td>`;
+    <td class="num col-optional">${t.rsi_h4!=null ? nf2.format(+t.rsi_h4) : '—'}</td>
+    <td class="num col-optional">${t.ath!=null ? '$'+nf2.format(+t.ath) : '—'}</td>
+    <td class="num">${t.x_ath_mc!=null ? 'x'+nf1.format(+t.x_ath_mc) : '—'}</td>`;
 
   tr.addEventListener('click', ()=>{ selectRow(tr, true); });
   tr.addEventListener('mouseenter', ()=>{ if(!pinned) selectRow(tr, false); });
@@ -285,13 +318,6 @@ function addRow(t){
   rows.push(tr);
 }
 
-function selectRow(tr, openDrawerIfClosed){
-  rows.forEach(r => r.classList.toggle('selected', r===tr));
-  renderDetails(tr);
-  if(openDrawerIfClosed){ openDrawer(); }
-}
-
-/* Color thresholds */
 function applyThresholds(){
   rows.forEach(r=>{
     const mctvl = parseFloat(r.dataset.mctvl);
@@ -329,6 +355,12 @@ function applyThresholds(){
 /* Drawer */
 const drawer = document.getElementById('drawer');
 const backdrop = document.getElementById('backdrop');
+const dTitle  = document.getElementById('d-title');
+const dMarket = document.getElementById('d-market');
+const dFonda  = document.getElementById('d-fonda');
+const dSocial = document.getElementById('d-social');
+const dLinks  = document.getElementById('d-links');
+const dSignals= document.getElementById('d-signals');
 const openBtn = document.getElementById('openDetails');
 const closeBtn = document.getElementById('closeDrawer');
 const pinBtn = document.getElementById('pinBtn');
@@ -344,6 +376,108 @@ pinBtn.addEventListener('click', ()=>{
   pinned = !pinned;
   pinBtn.textContent = pinned ? '📌 Épinglé' : '📌 Épingler';
 });
+
+function selectRow(tr, openDrawerIfClosed){
+  rows.forEach(r => r.classList.toggle('selected', r===tr));
+  renderDetails(tr);
+  if(openDrawerIfClosed){ openDrawer(); }
+}
+
+function renderDetails(r){
+  dTitle.textContent = `${r.dataset.symbol} · ${r.dataset.venue}`;
+  const tvl = r.dataset.tvl ? money(+r.dataset.tvl) : 'N/D';
+  const mctvl = r.dataset.mctvl ? fmtNum2(+r.dataset.mctvl) : '—';
+
+  dMarket.innerHTML = `
+    <div class="k">Date</div><div class="num">${r.dataset.alert||'—'}</div>
+    <div class="k">Prix</div><div class="num">${r.dataset.price||'—'}</div>
+    <div class="k">Market Cap</div><div class="num">${r.dataset.mc||'—'}</div>
+    <div class="k">TVL</div><div class="num">${tvl}</div>
+    <div class="k">MC/TVL</div><div class="num">${mctvl}</div>
+    <div class="k">ATH (prix)</div><div class="num">${r.dataset.ath||'—'}</div>
+    <div class="k">ATH Mcap</div><div class="num">${r.dataset.athmc||'—'}</div>
+    <div class="k">x ATH Mcap</div><div class="num">${r.dataset.xathmc? 'x'+nf1.format(+r.dataset.xathmc):'—'}</div>
+    <div class="k">Prix cible (ATH Mcap)</div><div class="num">${r.dataset.pricetarget||'—'}</div>
+    <div class="k">Vol/MC (24h)</div><div class="num">${(isNaN(parseFloat(r.dataset.volmc))?'—':(nf2.format(parseFloat(r.dataset.volmc))+'%'))}</div>
+    <div class="k">Moy Vol7j/TVL</div><div class="num">${(isNaN(parseFloat(r.dataset.vol7tvl))?'—':(nf2.format(parseFloat(r.dataset.vol7tvl))+'%'))}</div>
+    <div class="k">Var Vol 7j/30j</div><div class="num">${r.dataset.varv? nf2.format(+r.dataset.varv)+'×':'—'}</div>
+    <div class="k">RSI Daily (14)</div><div class="num">${r.dataset.rsid? nf2.format(+r.dataset.rsid):'—'}</div>
+    <div class="k">RSI H4 (14)</div><div class="num">${r.dataset.rsih4? nf2.format(+r.dataset.rsih4):'—'}</div>
+    <div class="k">Source TVL</div><div class="num">${r.dataset.tvlsrc||'—'}</div>`;
+
+  // Signaux dans le drawer
+  const t = {
+    tvl: (r.dataset.tvl? +r.dataset.tvl : null),
+    mc_tvl: (r.dataset.mctvl? +r.dataset.mctvl : null),
+    var_vol_7_over_30: (r.dataset.varv? +r.dataset.varv : null),
+    vol_mc_24: (r.dataset.volmc? +r.dataset.volmc : null),
+    x_ath_mc: (r.dataset.xathmc? +r.dataset.xathmc : null),
+    rsi_d: (r.dataset.rsid? +r.dataset.rsid : null)
+  };
+  dSignals.innerHTML = signalsHTML(buildSignals(t));
+
+  dFonda.innerHTML = `
+    <div class="k">Narratif</div><div>${r.dataset.narr||'—'}</div>
+    <div class="k">Lancement</div><div class="num">${r.dataset.launch||'—'}</div>`;
+
+  dSocial.innerHTML = `
+    <div class="k">Twitter</div><div class="num">${r.dataset.twf ? nf2.format(+r.dataset.twf) : '—'}</div>
+    <div class="k">FDV</div><div class="num">${r.dataset.fdv||'—'}</div>`;
+
+  dLinks.innerHTML = [
+    r.dataset.site ? `<a href="${r.dataset.site}" target="_blank">Site</a>` : '',
+    r.dataset.wp   ? `<a href="${r.dataset.wp}" target="_blank">Whitepaper</a>` : '',
+    r.dataset.tw   ? `<a href="${r.dataset.tw}" target="_blank">Twitter</a>` : '',
+    r.dataset.gh   ? `<a href="${r.dataset.gh}" target="_blank">GitHub</a>` : ''
+  ].filter(Boolean).join(' ');
+}
+
+/* Search & Refresh */
+document.getElementById('search').addEventListener('input', (e)=>{
+  const q = e.target.value.trim().toLowerCase();
+  rows.forEach(r=>{ r.style.display = r.innerText.toLowerCase().includes(q)? '' : 'none'; });
+});
+document.getElementById('btnRefresh').addEventListener('click', loadData);
+const autoToggle = document.getElementById('autoToggle');
+let autoTimer=null;
+function startAuto(){ stopAuto(); autoTimer=setInterval(loadData, 60_000); }
+function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } }
+autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
+if(autoToggle.checked) startAuto();
+autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
+
+/* Cartes de signaux (sous le tableau) */
+const cardsToggle = document.getElementById('cardsToggle');
+const cardsWrap = document.getElementById('cardsWrap');
+const cardsGrid = document.getElementById('cardsGrid');
+
+function renderCards(list){
+  if(!cardsToggle.checked){ cardsWrap.classList.remove('show'); return; }
+  cardsWrap.classList.add('show');
+  cardsGrid.innerHTML = '';
+  list.forEach(t=>{
+    const sigs = buildSignals(t);
+    const div = document.createElement('div');
+    div.className = 'sig-card';
+    div.innerHTML = `
+      <div class="sig-head">
+        <div>
+          <div class="sig-title">${t.symbol}</div>
+          <div class="sig-sub">${t.price!=null ? '$'+nf2.format(+t.price) : '—'} · MC ${money(t.mc)} · TVL ${t.tvl!=null?money(t.tvl):'N/D'}</div>
+        </div>
+        <button class="btn" data-sym="${t.symbol}">Voir</button>
+      </div>
+      ${signalsHTML(sigs)}
+    `;
+    div.querySelector('button').addEventListener('click', ()=>{
+      // focus la ligne correspondante si elle existe
+      const tr = Array.from(rows).find(r => r.dataset.symbol === t.symbol);
+      if(tr){ selectRow(tr, true); window.scrollTo({ top:0, behavior:'smooth' }); }
+    });
+    cardsGrid.appendChild(div);
+  });
+}
+cardsToggle.addEventListener('change', ()=> renderCards(tokensData));
 
 /* Drawer resize */
 const resizer = document.getElementById('drawerResizer');
@@ -363,74 +497,11 @@ resizer.addEventListener('mousedown', (e)=>{
   window.addEventListener('mousemove', onDrag);
   window.addEventListener('mouseup', onStopDrag);
 });
-function onDrag(e){
-  if(!drag) return;
-  const dx = startX - e.clientX;
-  setDrawerWidth(startW + dx);
-}
-function onStopDrag(){
-  if(!drag) return;
-  drag=false; document.body.classList.remove('resizing');
-  window.removeEventListener('mousemove', onDrag);
-  window.removeEventListener('mouseup', onStopDrag);
-}
+function onDrag(e){ if(!drag) return; const dx = startX - e.clientX; setDrawerWidth(startW + dx); }
+function onStopDrag(){ if(!drag) return; drag=false; document.body.classList.remove('resizing');
+  window.removeEventListener('mousemove', onDrag); window.removeEventListener('mouseup', onStopDrag); }
 const savedW = parseInt(localStorage.getItem('drawerW'),10);
 if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
-
-/* Details */
-const dTitle  = document.getElementById('d-title');
-const dMarket = document.getElementById('d-market');
-const dFonda  = document.getElementById('d-fonda');
-const dSocial = document.getElementById('d-social');
-const dLinks  = document.getElementById('d-links');
-const dSignals= document.getElementById('d-signals');
-
-function renderDetails(r){
-  dTitle.textContent = `${r.dataset.symbol} · ${r.dataset.venue}`;
-  const tvl = r.dataset.tvl ? money(+r.dataset.tvl) : 'N/D';
-  const mctvl = r.dataset.mctvl ? fmtNum2(+r.dataset.mctvl) : '—';
-
-  dMarket.innerHTML = `
-    <div class="k">Date</div><div class="num">${r.dataset.alert||'—'}</div>
-    <div class="k">Prix</div><div class="num">${r.dataset.price||'—'}</div>
-    <div class="k">Market Cap</div><div class="num">${r.dataset.mc||'—'}</div>
-    <div class="k">TVL</div><div class="num">${tvl}</div>
-    <div class="k">MC/TVL</div><div class="num">${mctvl}</div>
-    <div class="k">ATH (prix)</div><div class="num">${r.dataset.ath||'—'}</div>
-    <div class="k">ATH Mcap</div><div class="num">${r.dataset.athmc||'—'}</div>
-    <div class="k">x ATH Mcap</div><div class="num">${r.dataset.xathmc? 'x'+new Intl.NumberFormat('en-US',{maximumFractionDigits:1}).format(+r.dataset.xathmc):'—'}</div>
-    <div class="k">Prix cible (ATH Mcap)</div><div class="num">${r.dataset.pricetarget||'—'}</div>
-    <div class="k">Vol/MC (24h)</div><div class="num">${(isNaN(parseFloat(r.dataset.volmc))?'—':(nf2.format(parseFloat(r.dataset.volmc))+'%'))}</div>
-    <div class="k">Moy Vol7j/TVL</div><div class="num">${(isNaN(parseFloat(r.dataset.vol7tvl))?'—':(nf2.format(parseFloat(r.dataset.vol7tvl))+'%'))}</div>
-    <div class="k">Var Vol 7j/30j</div><div class="num">${r.dataset.varv? nf2.format(+r.dataset.varv)+'×':'—'}</div>
-    <div class="k">RSI Daily (14)</div><div class="num">${r.dataset.rsid? nf2.format(+r.dataset.rsid):'—'}</div>
-    <div class="k">RSI H4 (14)</div><div class="num">${r.dataset.rsih4? nf2.format(+r.dataset.rsih4):'—'}</div>
-    <div class="k">Source TVL</div><div class="num">${r.dataset.tvlsrc||'—'}</div>`;
-
-  const t = {
-    tvl: (r.dataset.tvl? +r.dataset.tvl : null),
-    mc_tvl: (r.dataset.mctvl? +r.dataset.mctvl : null),
-    var_vol_7_over_30: (r.dataset.varv? +r.dataset.varv : null),
-    vol_mc_24: (r.dataset.volmc? +r.dataset.volmc : null),
-    x_ath_mc: (r.dataset.xathmc? +r.dataset.xathmc : null),
-    rsi_d: (r.dataset.rsid? +r.dataset.rsid : null)
-  };
-  dSignals.innerHTML = signalsHTML(buildSignals(t));
-}
-
-/* Search & Refresh */
-document.getElementById('search').addEventListener('input', (e)=>{
-  const q = e.target.value.trim().toLowerCase();
-  rows.forEach(r=>{ r.style.display = r.innerText.toLowerCase().includes(q)? '' : 'none'; });
-});
-document.getElementById('btnRefresh').addEventListener('click', loadData);
-const autoToggle = document.getElementById('autoToggle');
-let autoTimer=null;
-function startAuto(){ stopAuto(); autoTimer=setInterval(loadData, 60_000); }
-function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } }
-autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
-if(autoToggle.checked) startAuto();
-autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
 
 /* Init */
 loadData();
