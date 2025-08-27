@@ -1,7 +1,7 @@
 // fetch_and_build.js — Node 20
 // Sheet (DateKey ≤2j + fallback 7j) → CMC (prix/MC/%) → DeFiLlama (TVL)
 // → CoinGecko (ATH prix + date, volumes 30j, RSI D/H4, ATH Market Cap via market_caps=MAX)
-// → Fallback OHLC (Binance/MEXC/CryptoCompare) pour ATH/RSI → data.json
+// → Fallback OHLC (Binance/MEXC/CryptoCompare) pour ATH/RSI/VOLUMES → data.json
 
 const fs = require('fs');
 const path = require('path');
@@ -15,6 +15,7 @@ const CMC_API_KEY = process.env.CMC_API_KEY || '';
 const QUOTES = ['USDT','USDC','USD','BTC','ETH','EUR','DAI'];
 const SEP_RE = /[:\-_/]/;
 
+/* ---------- CoinGecko overrides ---------- */
 const GECKO_OVERRIDES = {
   BTC:'bitcoin', ETH:'ethereum', BNB:'binancecoin', SOL:'solana', ADA:'cardano', XRP:'ripple',
   DOT:'polkadot', LINK:'chainlink', MATIC:'polygon', POL:'polygon', AVAX:'avalanche-2',
@@ -26,6 +27,7 @@ const GECKO_OVERRIDES = {
   ATH:'aethir'
 };
 
+/* ---------- Aliases DeFiLlama (favorise les chains) ---------- */
 const CHAIN_ALIASES = {
   ETH:'Ethereum', WETH:'Ethereum', STETH:'Ethereum',
   AVAX:'Avalanche', OP:'Optimism', ARB:'Arbitrum', BNB:'BSC',
@@ -35,7 +37,7 @@ const CHAIN_ALIASES = {
   ETC:'Ethereum Classic'
 };
 
-/*================== utils ==================*/
+/* ================ Utils ================ */
 function parseCSV(text){
   const rows=[]; let row=[], col='', inQ=false;
   for(let i=0;i<text.length;i++){
@@ -55,7 +57,7 @@ function normalizeAsset(raw){
   s = s.split(/\s+/)[0];
   let venue='', base=s;
   if(s.includes(':')){ const p=s.split(':'); if(p.length>=2){ venue=(p[0]||'').toUpperCase(); base=p[1]; } }
-  const segs=base.split(/[:\-_/]/).filter(Boolean);
+  const segs=base.split(SEP_RE).filter(Boolean);
   base = segs[segs.length-1] || base;
   if(/^0x[0-9a-fA-F]{4,}$/.test(base)) return { symbol: base.toUpperCase(), venue };
   base = base.toUpperCase().replace(/(PERP|\d+L|\d+S)$/,'');
@@ -87,7 +89,7 @@ async function fetchJSON(url, init){ const r=await fetch(url,init); const j=awai
 const avg = a => (!a||!a.length) ? null : a.reduce((x,y)=>x+y,0)/a.length;
 const norm = s => String(s||'').toLowerCase().replace(/[^a-z0-9]+/g,'');
 
-/*================== 1) Sheet ==================*/
+/* ================ 1) Sheet ================ */
 async function readRecentFromSheet(){
   const csv = await fetchTextWithRetry(SHEET_CSV_URL);
   const rows = parseCSV(csv);
@@ -116,7 +118,7 @@ async function readRecentFromSheet(){
   return recent;
 }
 
-/*================== 2) CMC ==================*/
+/* ================ 2) CMC ================= */
 async function cmcQuotesBySymbol(symbols){
   if(!CMC_API_KEY) return {};
   const headers = { 'X-CMC_PRO_API_KEY': CMC_API_KEY };
@@ -152,7 +154,7 @@ async function cmcInfoBySymbol(symbols){
   return out;
 }
 
-/*================== 3) DeFiLlama TVL ==================*/
+/* ================ 3) DeFiLlama TVL ================ */
 let LLAMA_PROTOCOLS=null, LLAMA_CHAINS=null;
 async function loadLlamaCatalogs(){
   if(!LLAMA_CHAINS)    LLAMA_CHAINS    = await fetchJSON('https://api.llama.fi/chains');
@@ -200,7 +202,7 @@ async function getTVLForSymbol(symbol){
   return { tvl: null, via: null };
 }
 
-/*================== 4) CoinGecko (ATH/vols/RSI + ATH Mcap) ==================*/
+/* ================ 4) CoinGecko (ATH/vols/RSI + ATH Mcap) ================ */
 async function geckoFindId(symbol, cmcInfo){
   if(GECKO_OVERRIDES[symbol]) return GECKO_OVERRIDES[symbol];
 
@@ -256,7 +258,7 @@ async function geckoMarketChart(id, days, interval='daily'){
     };
   }catch(e){ return { vols:[], closes:[], caps:[] }; }
 }
-async function geckoMarketCapsMax(id){ // days=max pour choper ATH Mcap
+async function geckoMarketCapsMax(id){
   try{
     const j = await fetchJSON(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=max&interval=daily`);
     return (j?.market_caps||[]).map(c=>+c[1]).filter(Number.isFinite);
@@ -265,8 +267,7 @@ async function geckoMarketCapsMax(id){ // days=max pour choper ATH Mcap
 async function geckoMarketChartHourly(id, days=7){
   try{
     const j=await fetchJSON(`https://api.coingecko.com/api/v3/coins/${encodeURIComponent(id)}/market_chart?vs_currency=usd&days=${days}&interval=hourly`);
-    const closes=(j?.prices||[]).map(p=>+p[1]).filter(Number.isFinite);
-    return closes;
+    return (j?.prices||[]).map(p=>+p[1]).filter(Number.isFinite);
   }catch(e){ return []; }
 }
 function to4hCloses(hourlyCloses){
@@ -295,60 +296,112 @@ function rsi14FromCloses(closes){
   return 100 - 100/(1+rs);
 }
 
-/*==== Fallback OHLC (Binance/MEXC/CryptoCompare) pour ATH/RSI ====*/
+/* ===== Fallback OHLC & VOLUMES (Binance/MEXC/CryptoCompare) ===== */
+
+// Binance klines: [0]openTime,[1]open,[2]high,[3]low,[4]close,[5]volume(base),
+// [6]closeTime,[7]quoteAssetVolume,[8]trades,[9]takerBuyBase,[10]takerBuyQuote,[11]ignore
 async function binanceKlines(symbol, interval='1d', limit=1000){
   const pairs = [`${symbol}USDT`, `${symbol}USD`];
   for(const p of pairs){
     try{
       const j = await fetchJSON(`https://api.binance.com/api/v3/klines?symbol=${p}&interval=${interval}&limit=${limit}`);
-      if(Array.isArray(j) && j.length){
-        return j.map(k => +k[4]).filter(Number.isFinite);
-      }
+      if(Array.isArray(j) && j.length) return j;
     }catch(e){}
   }
   return [];
 }
+function extractBinanceCloses(klines){
+  return klines.map(k => +k[4]).filter(Number.isFinite);
+}
+function extractBinanceQuoteVolumes(klines){
+  return klines.map(k => +k[7]).filter(Number.isFinite); // USD/USDT volumes
+}
+
+// MEXC klines: [openTime, open, high, low, close, volume(base), ...]
+// → pas de quoteVolume, on approx: baseVol * close
 async function mexcKlines(symbol, interval='1d', limit=1000){
   const pairs = [`${symbol}USDT`, `${symbol}USD`];
   for(const p of pairs){
     try{
       const j = await fetchJSON(`https://api.mexc.com/api/v3/klines?symbol=${p}&interval=${interval}&limit=${limit}`);
-      if(Array.isArray(j) && j.length){
-        return j.map(k => +k[4]).filter(Number.isFinite);
-      }
+      if(Array.isArray(j) && j.length) return j;
     }catch(e){}
   }
   return [];
 }
+function extractMexcCloses(klines){
+  return klines.map(k => +k[4]).filter(Number.isFinite);
+}
+function extractMexcQuoteVolumesApprox(klines){
+  return klines.map(k => (+k[5])*(+k[4])).filter(Number.isFinite);
+}
+
+// CryptoCompare v2/histoday & v2/histohour: Data.Data[].close, volumefrom, volumeto (USD)
 async function cryptoCompareDaily(symbol, tsym='USD', limit=2000){
   try{
     const j = await fetchJSON(`https://min-api.cryptocompare.com/data/v2/histoday?fsym=${encodeURIComponent(symbol)}&tsym=${tsym}&limit=${limit}`);
-    return (j?.Data?.Data||[]).map(x => +x.close).filter(Number.isFinite);
-  }catch(e){ return []; }
+    const arr = (j?.Data?.Data||[]);
+    return {
+      closes: arr.map(x=>+x.close).filter(Number.isFinite),
+      volsUSD: arr.map(x=>+x.volumeto).filter(Number.isFinite)
+    };
+  }catch(e){ return { closes:[], volsUSD:[] }; }
 }
 async function cryptoCompareHourly(symbol, tsym='USD', limit=500){
   try{
     const j = await fetchJSON(`https://min-api.cryptocompare.com/data/v2/histohour?fsym=${encodeURIComponent(symbol)}&tsym=${tsym}&limit=${limit}`);
-    return (j?.Data?.Data||[]).map(x => +x.close).filter(Number.isFinite);
+    const arr = (j?.Data?.Data||[]);
+    return arr.map(x=>+x.close).filter(Number.isFinite);
   }catch(e){ return []; }
 }
-async function getCandlesFallback(symbol, venue){
-  const VEN = (venue||'').toUpperCase();
-  let daily=[], hourly=[];
-  if(VEN.includes('BINANCE')){
-    daily  = await binanceKlines(symbol, '1d', 1000);
-    hourly = await binanceKlines(symbol, '1h',  500);
-  }else if(VEN.includes('MEXC')){
-    daily  = await mexcKlines(symbol, '1d', 1000);
-    hourly = await mexcKlines(symbol, '1h',  500);
-  }
-  if(daily.length < 20)  daily  = await cryptoCompareDaily(symbol, 'USD', 2000);
-  if(hourly.length < 40) hourly = await cryptoCompareHourly(symbol, 'USD', 500);
-  const closes4h = to4hCloses(hourly);
-  return { daily, closes4h };
+function to4hFromHourly(hourlyCloses){
+  if(!hourlyCloses || hourlyCloses.length < 4) return [];
+  const out=[]; for(let i=3;i<hourlyCloses.length;i+=4) out.push(hourlyCloses[i]); return out;
 }
 
-/*================== build helpers ==================*/
+// Orchestrateurs fallback
+async function getCandlesFallback(symbol, venue){
+  const VEN = (venue||'').toUpperCase();
+  let dailyCloses=[], hourlyCloses=[];
+  if(VEN.includes('BINANCE')){
+    const k = await binanceKlines(symbol,'1d',1000);
+    dailyCloses = extractBinanceCloses(k);
+    const h = await binanceKlines(symbol,'1h',500);
+    hourlyCloses = extractBinanceCloses(h);
+  }else if(VEN.includes('MEXC')){
+    const k = await mexcKlines(symbol,'1d',1000);
+    dailyCloses = extractMexcCloses(k);
+    const h = await mexcKlines(symbol,'1h',500);
+    hourlyCloses = extractMexcCloses(h);
+  }
+  if(dailyCloses.length < 20 || hourlyCloses.length < 40){
+    const ccD = await cryptoCompareDaily(symbol,'USD',2000);
+    if(dailyCloses.length < 20) dailyCloses = ccD.closes;
+    if(hourlyCloses.length < 40){
+      hourlyCloses = await cryptoCompareHourly(symbol,'USD',500);
+    }
+  }
+  return { daily: dailyCloses, closes4h: to4hFromHourly(hourlyCloses) };
+}
+
+async function getDailyVolumesFallback(symbol, venue){
+  const VEN = (venue||'').toUpperCase();
+  let volUSD = [];
+  if(VEN.includes('BINANCE')){
+    const k = await binanceKlines(symbol,'1d',60);
+    volUSD = extractBinanceQuoteVolumes(k);
+  }else if(VEN.includes('MEXC')){
+    const k = await mexcKlines(symbol,'1d',60);
+    volUSD = extractMexcQuoteVolumesApprox(k); // approx baseVol*close
+  }
+  if(volUSD.length < 10){
+    const cc = await cryptoCompareDaily(symbol,'USD',60);
+    if((cc.volsUSD||[]).length) volUSD = cc.volsUSD;
+  }
+  return volUSD; // tableau de volumes quotidiens en USD (longueur variable ≤60)
+}
+
+/* ================ build helpers ================ */
 function baseRow(it, q, info){
   const usd = q?.quote?.USD;
   const urls = info?.urls || {};
@@ -372,7 +425,6 @@ function baseRow(it, q, info){
     tvl: null,
     mc_tvl: null,
 
-    // volumes/ratios
     vol_mc_24: (usd?.volume_24h && usd?.market_cap) ? (usd.volume_24h/usd.market_cap*100) : null,
     vol7_avg: null,
     vol30_avg: null,
@@ -380,14 +432,13 @@ function baseRow(it, q, info){
     vol7_tvl: null,
     var_vol_7_over_30: null,
 
-    // RSI & ATH prix
     rsi_d: null,
     rsi_h4: null,
+
     ath: null,
     ath_date: null,
-    ath_mult: null, // x ATH (prix) — gardé pour référence
+    ath_mult: null, // x ATH (prix)
 
-    // ATH Market Cap & potentiel
     ath_mc: null,
     x_ath_mc: null,
     price_target_ath_mc: null,
@@ -414,7 +465,7 @@ function writeDataJSON(rows){
   console.log(`✅ Écrit ${OUTPUT} avec ${rows.length} tokens.`);
 }
 
-/*================== MAIN ==================*/
+/* ================ MAIN ================ */
 (async()=>{
   try{
     const recent = await readRecentFromSheet();
@@ -442,48 +493,62 @@ function writeDataJSON(rows){
       try{
         const id = await geckoFindId(r.symbol, cmcI[r.symbol]);
         r.gecko_id = id || null;
-        if(!id) continue;
+        if(id){
+          const det = await geckoDetails(id);
+          if(typeof det.ath === 'number'){ r.ath = det.ath; if(r.price && r.price>0) r.ath_mult = det.ath / r.price; }
+          if(det.ath_date) r.ath_date = det.ath_date;
+          if(det.twitter_followers != null) r.twitter_followers = det.twitter_followers;
+          if(det.genesis_date && !r.launch_date) r.launch_date = det.genesis_date;
 
-        const det = await geckoDetails(id);
-        if(typeof det.ath === 'number'){ r.ath = det.ath; if(r.price && r.price>0) r.ath_mult = det.ath / r.price; }
-        if(det.ath_date) r.ath_date = det.ath_date;
-        if(det.twitter_followers != null) r.twitter_followers = det.twitter_followers;
-        if(det.genesis_date && !r.launch_date) r.launch_date = det.genesis_date;
+          const mc30 = await geckoMarketChart(id, 30, 'daily');
+          const v7 = avg(mc30.vols.slice(-7)), v30 = avg(mc30.vols.slice(-30));
+          if(v7!=null) r.vol7_avg = v7;
+          if(v30!=null) r.vol30_avg = v30;
+          if(v7 && v30) r.var_vol_7_over_30 = v7 / v30;
+          if(r.mc && v7)  r.vol7_mc  = v7 / r.mc * 100;
+          if(r.tvl && v7) r.vol7_tvl = v7 / r.tvl * 100;
 
-        // 30 jours: volumes/close pour ratios vol7/30 + RSI daily si besoin
-        const mc30 = await geckoMarketChart(id, 30, 'daily');
-        const v7 = avg(mc30.vols.slice(-7)), v30 = avg(mc30.vols.slice(-30));
-        if(v7!=null) r.vol7_avg = v7;
-        if(v30!=null) r.vol30_avg = v30;
-        if(v7 && v30) r.var_vol_7_over_30 = v7 / v30;
-        if(r.mc && v7)  r.vol7_mc  = v7 / r.mc * 100;
-        if(r.tvl && v7) r.vol7_tvl = v7 / r.tvl * 100;
+          const closesD = mc30.closes.length ? mc30.closes : (await geckoMarketChart(id, 120, 'daily')).closes;
+          const rsiD = rsi14FromCloses(closesD);
+          if(rsiD!=null) r.rsi_d = rsiD;
 
-        const closesD = mc30.closes.length ? mc30.closes : (await geckoMarketChart(id, 120, 'daily')).closes;
-        const rsiD = rsi14FromCloses(closesD);
-        if(rsiD!=null) r.rsi_d = rsiD;
+          const closesH = await geckoMarketChartHourly(id, 7);
+          const c4h = to4hCloses(closesH);
+          const rsiH4 = rsi14FromCloses(c4h);
+          if(rsiH4!=null) r.rsi_h4 = rsiH4;
 
-        // RSI H4 via hourly → 4h
-        const closesH = await geckoMarketChartHourly(id, 7);
-        const c4h = to4hCloses(closesH);
-        const rsiH4 = rsi14FromCloses(c4h);
-        if(rsiH4!=null) r.rsi_h4 = rsiH4;
-
-        // ATH Market Cap (days=max)
-        const caps = await geckoMarketCapsMax(id);
-        if(caps && caps.length){
-          const athMc = Math.max(...caps);
-          if(Number.isFinite(athMc)){
-            r.ath_mc = athMc;
-            if(r.mc && r.mc > 0) r.x_ath_mc = athMc / r.mc;
-            if(r.price && r.x_ath_mc) r.price_target_ath_mc = r.price * r.x_ath_mc;
+          const caps = await geckoMarketCapsMax(id);
+          if(caps && caps.length){
+            const athMc = Math.max(...caps);
+            if(Number.isFinite(athMc)){
+              r.ath_mc = athMc;
+              if(r.mc && r.mc > 0) r.x_ath_mc = athMc / r.mc;
+              if(r.price && r.x_ath_mc) r.price_target_ath_mc = r.price * r.x_ath_mc;
+            }
           }
         }
       }catch(e){}
     }
 
-    // Fallbacks ATH/RSI si Gecko incomplet
+    // ===== Fallbacks (ATH/RSI + VOLUMES + ATH Mcap ≈ ATH_price * circ_supply) =====
     for(const r of rows){
+      // Volumes quotidiens (USD) → v7/v30/ratios
+      if(r.vol7_avg==null || r.var_vol_7_over_30==null || r.vol7_tvl==null){
+        try{
+          const vols = await getDailyVolumesFallback(r.symbol, r.venue); // USD
+          if(vols.length){
+            const v7 = avg(vols.slice(-7));
+            const v30 = avg(vols.slice(-30));
+            if(v7!=null) r.vol7_avg = v7;
+            if(v30!=null) r.vol30_avg = v30;
+            if(v7 && v30) r.var_vol_7_over_30 = v7 / v30;
+            if(r.mc && v7)  r.vol7_mc  = v7 / r.mc * 100;
+            if(r.tvl && v7) r.vol7_tvl = v7 / r.tvl * 100;
+          }
+        }catch(e){}
+      }
+
+      // ATH / RSI si manquants
       if((r.ath == null || r.rsi_d == null || r.rsi_h4 == null)){
         try{
           const { daily, closes4h } = await getCandlesFallback(r.symbol, r.venue);
@@ -505,8 +570,19 @@ function writeDataJSON(rows){
           }
         }catch(e){}
       }
+
+      // ATH Mcap si manquant → approximation ATH_price * circulating_supply
+      if(r.ath_mc==null && r.ath!=null && r.circulating_supply!=null){
+        const approx = r.ath * r.circulating_supply;
+        if(Number.isFinite(approx) && approx > 0){
+          r.ath_mc = approx;
+          if(r.mc && r.mc > 0) r.x_ath_mc = approx / r.mc;
+          if(r.price && r.x_ath_mc) r.price_target_ath_mc = r.price * r.x_ath_mc;
+        }
+      }
     }
 
+    // recalcul sécurité
     for(const r of rows){
       if(r.tvl && r.mc && !r.mc_tvl) r.mc_tvl = r.mc / r.tvl;
     }
