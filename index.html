@@ -8,9 +8,7 @@
   :root{
     --bg:#0b0d12;--panel:#0f1320;--panel-2:#121727;--text:#e6edf3;--muted:#9aa4b2;
     --green:#29d397;--red:#ff6b6b;--amber:#ffc857;--blue:#6aa7ff;--card:#0c111b;--outline:#1e2a44;
-    --side-w:360px;           /* largeur initiale panneau */
-    --side-min:280px;         /* largeur mini */
-    --side-max:560px;         /* largeur maxi */
+    --drawer-w:400px; --drawer-min:280px; --drawer-max:640px;
   }
   *{box-sizing:border-box}
   body{margin:0;background:linear-gradient(180deg,#0a0d16,#0b0d12);color:var(--text);font:15px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
@@ -22,21 +20,11 @@
   .btn{cursor:pointer}
   .note{color:var(--muted);font-size:12px;margin:6px 0 14px}
 
-  /* Layout avec colonne tableau flexible + colonne panneau à largeur variable */
-  .layout{
-    display:grid;
-    grid-template-columns:minmax(0,1fr) var(--side-w);
-    gap:16px;
-    align-items:start;
-  }
-  .layout.one-col{ grid-template-columns:1fr; }
-
   .card{background:var(--panel);border:1px solid var(--outline);border-radius:14px;box-shadow:0 10px 24px rgba(0,0,0,.35);overflow:hidden}
-  .side{position:sticky; top:16px; align-self:start; }
 
-  /* Scroller pour éviter le crop du tableau */
+  /* Tableau pleine largeur + scroll propre si besoin */
   .table-scroller{width:100%;overflow:auto}
-  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1100px;}
+  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1200px;}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));color:#cfe0ff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 10px}
   tbody td{padding:10px 10px;border-bottom:1px solid #0f1422}
   tbody tr:hover{background:rgba(255,255,255,.03)}
@@ -47,41 +35,44 @@
   .num{font-variant-numeric:tabular-nums; white-space:nowrap;}
   .t-good{color:var(--green)} .t-warn{color:var(--amber)} .t-bad{color:var(--red)}
 
-  .panel{padding:14px}
-  .panel h3{margin:0 0 8px 0;font-size:16px}
+  /* Drawer overlay (n’affecte pas la largeur du tableau) */
+  #drawer{
+    position:fixed; top:0; right:0; height:100vh;
+    width:var(--drawer-w);
+    background:var(--panel); border-left:1px solid var(--outline);
+    box-shadow:-20px 0 40px rgba(0,0,0,.45);
+    transform:translateX(100%); transition:transform .2s ease;
+    z-index:1000; display:flex; flex-direction:column;
+  }
+  #drawer.open{ transform:none; }
+  #drawer .head{display:flex;justify-content:space-between;align-items:center;padding:12px 14px;border-bottom:1px solid var(--outline)}
+  #drawer .head h3{margin:0;font-size:16px}
+  #drawer .btns{display:flex;gap:8px}
+  #drawer .content{padding:12px 14px; overflow:auto; flex:1}
   .kv{display:grid;grid-template-columns:auto 1fr;gap:6px;font-size:14px}
   .kv .k{color:var(--muted)}
-  .row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px}
-  .pin{cursor:pointer;border:1px solid var(--outline);background:var(--panel-2);border-radius:10px;padding:4px 8px;color:var(--muted)}
-  .pin.active{color:#fff;border-color:#29d397;box-shadow:inset 0 0 0 1px #29d397}
   .links a{color:#9ec5ff;text-decoration:none;margin-right:8px}
 
-  /* Barre de redimensionnement */
-  .resize-col{
-    position:relative;
-    display:grid;
-    grid-template-columns:1fr 6px; /* panneau + poignée */
-    gap:0;
+  /* poignée de redimensionnement */
+  #drawer .resizer{
+    position:absolute; left:-6px; top:0; width:6px; height:100%;
+    cursor:col-resize; background:transparent;
   }
-  .resizer{
-    width:6px;
-    cursor:col-resize;
-    background:transparent;
-    position:relative;
+  #drawer .resizer:hover{ background:rgba(255,255,255,.06); }
+  body.resizing #drawer .resizer{ background:rgba(255,255,255,.1); }
+
+  /* backdrop (optionnel) */
+  #backdrop{
+    position:fixed; inset:0; background:rgba(0,0,0,.25);
+    opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:900;
   }
-  .resizer::after{
-    content:"";
-    position:absolute; inset:0;
-    background:linear-gradient(180deg, transparent 0, transparent 30%, rgba(255,255,255,.06) 30%, rgba(255,255,255,.06) 70%, transparent 70%, transparent 100%);
-  }
-  .resizer:hover{ background:rgba(255,255,255,.03); }
-  .resizing .resizer{ background:rgba(255,255,255,.08); }
+  #backdrop.show{ opacity:1; pointer-events:auto; }
 
   @media (max-width:980px){
-    .layout{ grid-template-columns:1fr; }
-    .resize-col{ grid-template-columns:1fr; }
-    .resizer{ display:none; }
-    .side{ position:static; }
+    table{min-width:1000px}
+    #drawer{ width:100%; height:70vh; left:0; right:auto; bottom:0; top:auto; border-left:0; border-top:1px solid var(--outline); transform:translateY(100%); }
+    #drawer.open{ transform:translateY(0); }
+    #drawer .resizer{ display:none; }
   }
 </style>
 </head>
@@ -91,63 +82,65 @@
     <div class="title">Scan MA50 v1.2 — Screener</div>
     <div class="toolbar">
       <input id="search" placeholder="Rechercher un token…" />
-      <button id="toggleSide" class="btn">🗂️ Détails</button>
+      <button id="openDetails" class="btn">🗂️ Détails</button>
       <button id="btnRefresh" class="btn">↻ Rafraîchir</button>
       <label><input type="checkbox" id="autoToggle"> Auto-refresh (60s)</label>
     </div>
   </header>
   <div class="note" id="lastupdate">Chargement…</div>
 
-  <div class="layout" id="layout">
-    <!-- Tableau -->
-    <div class="card">
-      <div class="table-scroller">
-        <table id="screener">
-          <thead>
-            <tr>
-              <th>Token</th>
-              <th style="white-space:nowrap">Date</th>
-              <th>Prix</th>
-              <th>Δ24h</th>
-              <th class="hide-sm">Δ7j</th>
-              <th class="hide-sm">Δ30j</th>
-              <th>MC</th>
-              <th>TVL</th>
-              <th>MC/TVL</th>
-              <th class="hide-sm">Vol/MC (24h)</th>
-              <th class="hide-sm">Moy Vol7j/TVL</th>
-              <th>Var Vol 7j/30j</th>
-              <th>RSI D</th>
-              <th class="hide-sm">ATH</th>
-              <th>Potentiel x</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-      </div>
-    </div>
-
-    <!-- Colonne redimensionnable: panneau + poignée -->
-    <div class="resize-col" id="resizeCol">
-      <div class="card side" id="detailCard">
-        <div class="panel">
-          <div class="row">
-            <h3 id="d-title">Détails</h3>
-            <button id="pinBtn" class="pin" title="Épingler / libérer">📌 Épingler</button>
-          </div>
-
-          <div class="kv" id="d-market"></div>
-          <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
-          <div class="kv" id="d-fonda"></div>
-          <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
-          <div class="kv" id="d-social"></div>
-          <div class="links" id="d-links" style="margin-top:8px"></div>
-        </div>
-      </div>
-      <div class="resizer" id="resizer" title="Redimensionner"></div>
+  <div class="card">
+    <div class="table-scroller">
+      <table id="screener">
+        <thead>
+          <tr>
+            <th>Token</th>
+            <th style="white-space:nowrap">Date</th>
+            <th>Prix</th>
+            <th>Δ24h</th>
+            <th class="hide-sm">Δ7j</th>
+            <th class="hide-sm">Δ30j</th>
+            <th>MC</th>
+            <th>TVL</th>
+            <th>MC/TVL</th>
+            <th class="hide-sm">Vol/MC (24h)</th>
+            <th class="hide-sm">Moy Vol7j/TVL</th>
+            <th>Var Vol 7j/30j</th>
+            <th>RSI D</th>
+            <th>RSI H4</th>
+            <th class="hide-sm">ATH</th>
+            <th>Potentiel x</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </div>
   </div>
 </div>
+
+<!-- Drawer overlay -->
+<div id="backdrop"></div>
+<aside id="drawer" aria-hidden="true">
+  <div class="resizer" id="drawerResizer" title="Redimensionner"></div>
+  <div class="head">
+    <h3 id="d-title">Détails</h3>
+    <div class="btns">
+      <button id="pinBtn" class="btn" title="Épingler / libérer">📌 Épingler</button>
+      <button id="closeDrawer" class="btn" title="Fermer">✖</button>
+    </div>
+  </div>
+  <div class="content">
+    <h4>📊 Marché</h4>
+    <div class="kv" id="d-market"></div>
+    <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
+    <h4>🧩 Fonda</h4>
+    <div class="kv" id="d-fonda"></div>
+    <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
+    <h4>📣 Social & Liens</h4>
+    <div class="kv" id="d-social"></div>
+    <div class="links" id="d-links" style="margin-top:8px"></div>
+  </div>
+</aside>
 
 <script>
 /* ==== Helpers ==== */
@@ -182,7 +175,6 @@ async function loadData(){
     tbody.innerHTML=''; rows.length=0;
     tokensData.forEach(t=> addRow(t));
     applyThresholds();
-    if(!selectedRow && rows[0]) { selectRow(rows[0]); }
   }catch(e){
     document.getElementById('lastupdate').textContent = 'Erreur de chargement de data.json';
   }
@@ -201,6 +193,7 @@ function addRow(t){
   tr.dataset.vol7tvl = t.vol7_tvl;
   tr.dataset.varv = t.var_vol_7_over_30;
   tr.dataset.rsid = t.rsi_d;
+  tr.dataset.rsih4 = t.rsi_h4;
   tr.dataset.tvl = t.tvl;
   tr.dataset.mctvl = t.mc_tvl;
   tr.dataset.alert = t.alert_date || '—';
@@ -227,20 +220,22 @@ function addRow(t){
     <td class="num hide-sm">${fmtPct(t.vol7_tvl)}</td>
     <td class="num">${t.var_vol_7_over_30!=null ? nf2.format(+t.var_vol_7_over_30)+'×' : '—'}</td>
     <td class="num">${t.rsi_d!=null ? nf2.format(+t.rsi_d) : '—'}</td>
+    <td class="num">${t.rsi_h4!=null ? nf2.format(+t.rsi_h4) : '—'}</td>
     <td class="num hide-sm">${t.ath!=null ? '$'+nf2.format(+t.ath) : '—'}</td>
     <td class="num">${fmtMult(t.ath_mult)}</td>`;
 
-  tr.addEventListener('click', ()=>{ if(!pinned) selectRow(tr); });
-  tr.addEventListener('mouseenter', ()=>{ if(!pinned) selectRow(tr); });
+  tr.addEventListener('click', ()=>{ selectRow(tr, true); });
+  tr.addEventListener('mouseenter', ()=>{ if(!pinned) selectRow(tr, false); });
 
   tbody.appendChild(tr);
   rows.push(tr);
 }
 
-function selectRow(tr){
+function selectRow(tr, openDrawerIfClosed){
   selectedRow = tr;
   rows.forEach(r => r.classList.toggle('selected', r===tr));
-  renderDetail(tr);
+  renderDetails(tr);
+  if(openDrawerIfClosed) openDrawer();
 }
 
 /* Color thresholds */
@@ -248,38 +243,97 @@ function applyThresholds(){
   rows.forEach(r=>{
     const mctvl = parseFloat(r.dataset.mctvl);
     const volmc = parseFloat(r.dataset.volmc);
-    const rsi   = parseFloat(r.dataset.rsid);
+    const rsiD  = parseFloat(r.dataset.rsid);
+    const rsiH4 = parseFloat(r.dataset.rsih4);
 
-    const cellMcTvl = r.children[8];
-    if(cellMcTvl && !isNaN(mctvl)){
-      if(mctvl <= 3) cellMcTvl.classList.add('t-good');
-      else if(mctvl <= 8) cellMcTvl.classList.add('t-warn');
-      else cellMcTvl.classList.add('t-bad');
+    const mcTvlCell = r.children[8];
+    if(mcTvlCell && !isNaN(mctvl)){
+      if(mctvl <= 3) mcTvlCell.classList.add('t-good');
+      else if(mctvl <= 8) mcTvlCell.classList.add('t-warn');
+      else mcTvlCell.classList.add('t-bad');
     }
-    const cellVolMc = r.children[9];
-    if(cellVolMc && !isNaN(volmc)){
-      if(volmc >= 5) cellVolMc.classList.add('t-good');
-      else if(volmc >= 2) cellVolMc.classList.add('t-warn');
-      else cellVolMc.classList.add('t-bad');
+    const volCell = r.children[9];
+    if(volCell && !isNaN(volmc)){
+      if(volmc >= 5) volCell.classList.add('t-good');
+      else if(volmc >= 2) volCell.classList.add('t-warn');
+      else volCell.classList.add('t-bad');
     }
-    const rsiCell = r.children[12];
-    if(rsiCell && !isNaN(rsi)){
-      if(rsi >= 70) rsiCell.classList.add('t-bad');
-      else if(rsi >= 45 && rsi <= 60) rsiCell.classList.add('t-good');
-      else rsiCell.classList.add('t-warn');
+    const rsiDCell = r.children[12];
+    if(rsiDCell && !isNaN(rsiD)){
+      if(rsiD >= 70) rsiDCell.classList.add('t-bad');
+      else if(rsiD >= 45 && rsiD <= 60) rsiDCell.classList.add('t-good');
+      else rsiDCell.classList.add('t-warn');
+    }
+    const rsiH4Cell = r.children[13];
+    if(rsiH4Cell && !isNaN(rsiH4)){
+      if(rsiH4 >= 70) rsiH4Cell.classList.add('t-bad');
+      else if(rsiH4 >= 45 && rsiH4 <= 60) rsiH4Cell.classList.add('t-good');
+      else rsiH4Cell.classList.add('t-warn');
     }
   });
 }
 
-/* Détail panel */
+/* Drawer logic */
+const drawer = document.getElementById('drawer');
+const backdrop = document.getElementById('backdrop');
+const openBtn = document.getElementById('openDetails');
+const closeBtn = document.getElementById('closeDrawer');
+const pinBtn = document.getElementById('pinBtn');
+let drawerOpen = false;
+
+function openDrawer(){ if(!drawerOpen){ drawer.classList.add('open'); backdrop.classList.add('show'); drawerOpen = true; } }
+function closeDrawer(){ if(drawerOpen){ drawer.classList.remove('open'); backdrop.classList.remove('show'); drawerOpen = false; } }
+
+openBtn.addEventListener('click', ()=>{ drawerOpen ? closeDrawer() : openDrawer(); });
+closeBtn.addEventListener('click', closeDrawer);
+backdrop.addEventListener('click', ()=>{ if(!pinned) closeDrawer(); });
+
+pinBtn.addEventListener('click', ()=>{
+  pinned = !pinned;
+  pinBtn.textContent = pinned ? '📌 Épinglé' : '📌 Épingler';
+});
+
+/* Drawer resize (desktop) */
+const resizer = document.getElementById('drawerResizer');
+let drag=false, startX=0, startW=0;
+function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+function setDrawerWidth(px){
+  const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-min'))||280;
+  const max = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-max'))||640;
+  const w = clamp(px, min, Math.min(max, window.innerWidth-240)); // garde au moins 240px de tableau visible
+  document.documentElement.style.setProperty('--drawer-w', w+'px');
+  localStorage.setItem('drawerW', String(w));
+}
+resizer.addEventListener('mousedown', (e)=>{
+  if(window.matchMedia('(max-width:980px)').matches) return;
+  e.preventDefault(); drag=true; document.body.classList.add('resizing');
+  startX=e.clientX; startW=drawer.getBoundingClientRect().width;
+  window.addEventListener('mousemove', onDrag);
+  window.addEventListener('mouseup', onStopDrag);
+});
+function onDrag(e){
+  if(!drag) return;
+  const dx = startX - e.clientX; // on tire vers la gauche pour élargir
+  setDrawerWidth(startW + dx);
+}
+function onStopDrag(){
+  if(!drag) return;
+  drag=false; document.body.classList.remove('resizing');
+  window.removeEventListener('mousemove', onDrag);
+  window.removeEventListener('mouseup', onStopDrag);
+}
+/* restore width */
+const savedW = parseInt(localStorage.getItem('drawerW'),10);
+if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
+
+/* Detail content */
 const dTitle  = document.getElementById('d-title');
 const dMarket = document.getElementById('d-market');
 const dFonda  = document.getElementById('d-fonda');
 const dSocial = document.getElementById('d-social');
 const dLinks  = document.getElementById('d-links');
-const pinBtn  = document.getElementById('pinBtn');
 
-function renderDetail(r){
+function renderDetails(r){
   dTitle.textContent = `${r.dataset.symbol} · ${r.dataset.venue}`;
   const tvl = r.dataset.tvl ? money(+r.dataset.tvl) : 'N/D';
   const mctvl = r.dataset.mctvl ? fmtNum2(+r.dataset.mctvl) : '—';
@@ -296,6 +350,7 @@ function renderDetail(r){
     <div class="k">Moy Vol7j/TVL</div><div class="num">${(isNaN(parseFloat(r.dataset.vol7tvl))?'—':(nf2.format(parseFloat(r.dataset.vol7tvl))+'%'))}</div>
     <div class="k">Var Vol 7j/30j</div><div class="num">${r.dataset.varv? nf2.format(+r.dataset.varv)+'×':'—'}</div>
     <div class="k">RSI Daily (14)</div><div class="num">${r.dataset.rsid? nf2.format(+r.dataset.rsid):'—'}</div>
+    <div class="k">RSI H4 (14)</div><div class="num">${r.dataset.rsih4? nf2.format(+r.dataset.rsih4):'—'}</div>
     <div class="k">Source TVL</div><div class="num">${r.dataset.tvlsrc||'—'}</div>`;
 
   dFonda.innerHTML = `
@@ -314,11 +369,6 @@ function renderDetail(r){
   ].filter(Boolean).join(' ');
 }
 
-pinBtn.addEventListener('click', ()=>{
-  pinned = !pinned;
-  pinBtn.classList.toggle('active', pinned);
-});
-
 /* Search */
 document.getElementById('search').addEventListener('input', (e)=>{
   const q = e.target.value.trim().toLowerCase();
@@ -335,63 +385,7 @@ autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
 if(autoToggle.checked) startAuto();
 autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
 
-/* Toggle panneau */
-const side = document.getElementById('detailCard');
-const resizeCol = document.getElementById('resizeCol');
-const layout = document.getElementById('layout');
-document.getElementById('toggleSide').addEventListener('click', ()=>{
-  const hidden = side.classList.toggle('hidden');
-  resizeCol.style.display = hidden ? 'none' : 'grid';
-  layout.classList.toggle('one-col', hidden);
-  localStorage.setItem('sideHidden', hidden ? '1' : '0');
-});
-if(localStorage.getItem('sideHidden')==='1'){
-  side.classList.add('hidden');
-  resizeCol.style.display='none';
-  layout.classList.add('one-col');
-}
-
-/* Redimensionnement (drag) */
-const resizer = document.getElementById('resizer');
-let isDragging=false, startX=0, startW=0;
-
-function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
-function setSideWidth(px){
-  const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--side-min')) || 280;
-  const max = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--side-max')) || 560;
-  const w = clamp(px, min, Math.min(max, window.innerWidth-240)); // laisse au moins 240px au tableau
-  document.documentElement.style.setProperty('--side-w', w+'px');
-  localStorage.setItem('sideW', String(w));
-}
-
-resizer.addEventListener('mousedown', (e)=>{
-  e.preventDefault();
-  if(side.classList.contains('hidden')) return;
-  isDragging=true;
-  document.body.classList.add('resizing');
-  startX = e.clientX;
-  startW = side.getBoundingClientRect().width;
-  window.addEventListener('mousemove', onDrag);
-  window.addEventListener('mouseup', onStopDrag);
-});
-function onDrag(e){
-  if(!isDragging) return;
-  const dx = e.clientX - startX;
-  setSideWidth(startW + dx);
-}
-function onStopDrag(){
-  if(!isDragging) return;
-  isDragging=false;
-  document.body.classList.remove('resizing');
-  window.removeEventListener('mousemove', onDrag);
-  window.removeEventListener('mouseup', onStopDrag);
-}
-
-/* Restaurer largeur personnalisée */
-const savedW = parseInt(localStorage.getItem('sideW'),10);
-if(!isNaN(savedW)) document.documentElement.style.setProperty('--side-w', savedW+'px');
-
-/* Go */
+/* Init */
 loadData();
 </script>
 </body>
