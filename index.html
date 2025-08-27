@@ -442,7 +442,6 @@ const backdrop = document.getElementById('backdrop');
 const openBtn = document.getElementById('openDetails');
 const closeBtn = document.getElementById('closeDrawer');
 const pinBtn = document.getElementById('pinBtn');
-let drawerOpen = false, pinned=false;
 
 openBtn.addEventListener('click', ()=>{ drawerOpen ? closeDrawer() : openDrawer(); drawerOpen=!drawerOpen; });
 closeBtn.addEventListener('click', ()=>{ closeDrawer(); drawerOpen=false; });
