@@ -24,6 +24,7 @@
 
   .card{background:var(--panel);border:1px solid var(--outline);border-radius:14px;box-shadow:0 10px 24px rgba(0,0,0,.35);overflow:hidden}
 
+  /* --- Table --- */
   .table-scroller{width:100%;overflow:auto}
   table{width:100%;border-collapse:separate;border-spacing:0; min-width:980px;}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));color:#cfe0ff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 10px}
@@ -36,13 +37,13 @@
   .num{font-variant-numeric:tabular-nums; white-space:nowrap;}
   .t-good{color:var(--green)} .t-warn{color:var(--amber)} .t-bad{color:var(--red)}
 
-  /* Cacher les colonnes “secondaires” sur écrans moyens/petits */
+  /* Cacher colonnes secondaires sur écrans moyens/petits */
   @media (max-width: 1280px){
     .col-optional{ display:none; }
     table{min-width: 980px;}
   }
 
-  /* Badges (signaux) */
+  /* --- Badges --- */
   .badges{display:flex;gap:6px;flex-wrap:wrap}
   .badge{
     font-size:11px; line-height:1; padding:6px 8px; border-radius:999px;
@@ -54,18 +55,23 @@
   .b-warn{ border-color: rgba(255,200,87,.5); box-shadow: inset 0 0 0 999px rgba(255,200,87,.10);}
   .b-bad{  border-color: rgba(255,107,107,.5); box-shadow: inset 0 0 0 999px rgba(255,107,107,.10);}
 
-  /* Cartes de signaux sous le tableau */
+  /* --- Cartes détaillées --- */
   #cardsWrap{ display:none; margin-top:14px; }
   #cardsWrap.show{ display:block; }
-  .grid{ display:grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px; }
-  @media (max-width:1000px){ .grid{ grid-template-columns: repeat(2, minmax(0,1fr)); } }
-  @media (max-width:640px){ .grid{ grid-template-columns: 1fr; } }
-  .sig-card{ background:var(--panel); border:1px solid var(--outline); border-radius:12px; padding:12px; }
-  .sig-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; }
-  .sig-title{ font-weight:700; }
-  .sig-sub{ color:var(--muted); font-size:12px; }
+  .grid{ display:grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap:12px; }
+  @media (min-width:1200px){ .grid{ grid-template-columns: repeat(3, minmax(0,1fr)); } }
+  @media (max-width:800px){ .grid{ grid-template-columns: 1fr; } }
 
-  /* Drawer */
+  .sig-card{ background:var(--panel); border:1px solid var(--outline); border-radius:12px; padding:12px; }
+  .sig-head{ display:flex; align-items:center; justify-content:space-between; margin-bottom:8px; gap:8px; }
+  .sig-title{ font-weight:700; font-size:15px; }
+  .sig-sub{ color:var(--muted); font-size:12px; }
+  .sig-metrics{ color:var(--muted); font-size:12px; margin-bottom:8px; }
+  .sig-divider{ border:0; border-top:1px solid var(--outline); margin:10px 0; }
+  .sig-list{ margin:0; padding-left:16px; color:var(--muted); }
+  .sig-list li{ margin:6px 0; }
+
+  /* --- Drawer --- */
   #drawer{
     position:fixed; top:0; right:0; height:100vh;
     width:var(--drawer-w);
@@ -93,12 +99,6 @@
     #drawer.open{ transform:translateY(0); }
     #drawer .resizer{ display:none; }
   }
-
-  /* Légende */
-  .legend{ margin-top:14px; background:var(--panel); border:1px solid var(--outline); border-radius:12px; padding:12px; }
-  .legend h4{ margin:0 0 8px 0; }
-  .legend ul{ margin:0; padding-left:18px; color:var(--muted); }
-  .legend li{ margin:6px 0; }
 </style>
 </head>
 <body>
@@ -145,23 +145,9 @@
     </div>
   </div>
 
-  <!-- Cartes de signaux -->
+  <!-- Cartes détaillées -->
   <div id="cardsWrap">
     <div class="grid" id="cardsGrid"></div>
-  </div>
-
-  <!-- Légende & explications -->
-  <div class="legend">
-    <h4>À propos des signaux</h4>
-    <ul>
-      <li><span class="badge b-good">💎 MC/TVL ≤ 3</span> → valeur “efficace” : la capitalisation n’est pas trop éloignée des TVL (moins de frottement spéculatif).</li>
-      <li><span class="badge b-bad">MC/TVL &gt; 12</span> → capitalisation “tendue” par rapport à l’activité on-chain → prudence.</li>
-      <li><span class="badge b-info">⚡ Vol7/30 ≥ 1.5</span> → montée d’activité récente (momentum) par rapport à la moyenne 30j.</li>
-      <li><span class="badge b-good">💧 Vol/MC ≥ 5%</span> → liquidité saine (faible slippage). <span class="badge b-warn">Illiquid &lt; 1%</span> → attention aux mèches.</li>
-      <li><span class="badge b-info">🎯 x ≥ 3 ATH Mcap</span> → “upside” potentiel si le projet revisite son ATH de market cap (neutralise la dilution).</li>
-      <li><span class="badge b-info">🧊 RSI D ≤ 35</span> → conditions de survente possibles ; <span class="badge b-bad">🟥 RSI D ≥ 70</span> → surachat potentiel.</li>
-      <li><span class="badge b-bad">TVL N/D</span> → pas de TVL fiable trouvée (match auto DeFiLlama) → les ratios TVL sont incomplets.</li>
-    </ul>
   </div>
 </div>
 
@@ -226,21 +212,31 @@ let drawerOpen = false;
 /* ==== Signals ==== */
 function buildSignals(t){
   const s = [];
-  if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1});
-  if(t.mc_tvl != null && t.mc_tvl <= 3) s.push({k:'💎 MC/TVL≤3', c:'b-good', pri:3});
-  if(t.mc_tvl != null && t.mc_tvl > 12) s.push({k:'MC/TVL>12', c:'b-bad', pri:2});
-  if(t.var_vol_7_over_30 != null && t.var_vol_7_over_30 >= 1.5) s.push({k:'⚡ Vol7/30≥1.5', c:'b-info', pri:4});
-  if(t.vol_mc_24 != null && t.vol_mc_24 >= 5) s.push({k:'💧 Vol/MC≥5%', c:'b-good', pri:5});
-  if(t.vol_mc_24 != null && t.vol_mc_24 < 1) s.push({k:'Illiquid', c:'b-warn', pri:5});
-  if(t.x_ath_mc != null && t.x_ath_mc >= 3) s.push({k:'🎯 x≥3 ATH Mcap', c:'b-info', pri:6});
-  if(t.x_ath_mc != null && t.x_ath_mc < 1) s.push({k:'Near ATH Mcap', c:'b-warn', pri:7});
-  if(t.rsi_d != null && t.rsi_d <= 35) s.push({k:'🧊 RSI D≤35', c:'b-info', pri:8});
-  if(t.rsi_d != null && t.rsi_d >= 70) s.push({k:'🟥 RSI D≥70', c:'b-bad', pri:8});
-  return s.sort((a,b)=>a.pri-b.pri).slice(0,4);
+  if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1, key:'tvl_nd'});
+  if(t.mc_tvl != null && t.mc_tvl <= 3) s.push({k:'💎 MC/TVL≤3', c:'b-good', pri:3, key:'mctvl_low'});
+  if(t.mc_tvl != null && t.mc_tvl > 12) s.push({k:'MC/TVL>12', c:'b-bad', pri:2, key:'mctvl_high'});
+  if(t.var_vol_7_over_30 != null && t.var_vol_7_over_30 >= 1.5) s.push({k:'⚡ Vol7/30≥1.5', c:'b-info', pri:4, key:'mom_vol'});
+  if(t.vol_mc_24 != null && t.vol_mc_24 >= 5) s.push({k:'💧 Vol/MC≥5%', c:'b-good', pri:5, key:'liq_good'});
+  if(t.vol_mc_24 != null && t.vol_mc_24 < 1) s.push({k:'Illiquid', c:'b-warn', pri:5, key:'liq_low'});
+  if(t.x_ath_mc != null && t.x_ath_mc >= 3) s.push({k:'🎯 x≥3 ATH Mcap', c:'b-info', pri:6, key:'upside'});
+  if(t.x_ath_mc != null && t.x_ath_mc < 1) s.push({k:'Near ATH Mcap', c:'b-warn', pri:7, key:'near_ath'});
+  if(t.rsi_d != null && t.rsi_d <= 35) s.push({k:'🧊 RSI D≤35', c:'b-info', pri:8, key:'rsi_oversold'});
+  if(t.rsi_d != null && t.rsi_d >= 70) s.push({k:'🟥 RSI D≥70', c:'b-bad', pri:8, key:'rsi_overbought'});
+  return s.sort((a,b)=>a.pri-b.pri);
 }
-function signalsHTML(list){
-  return `<div class="badges">` + list.map(x=>`<span class="badge ${x.c}" title="${x.k}">${x.k}</span>`).join('') + `</div>`;
-}
+const SIGNAL_EXPLAIN = {
+  tvl_nd: "Pas de TVL fiable trouvée (match auto DeFiLlama) → ratios TVL incomplets.",
+  mctvl_low: "Capitalisation proche de l’activité on-chain (moins de prime spéculative).",
+  mctvl_high:"Capitalisation tendue vs TVL → prudence (surévaluation potentielle).",
+  mom_vol: "Momentum: le volume moyen 7j dépasse nettement le 30j.",
+  liq_good:"Liquidité saine : volume/MC sur 24h ≥ 5% (slippage réduit).",
+  liq_low: "Faible liquidité: volume/MC sur 24h < 1% (slippage, mèches possibles).",
+  upside:  "Potentiel si retour à l’ATH de market cap (neutralise la dilution).",
+  near_ath:"Proche des sommets historiques de market cap (peu d’upside).",
+  rsi_oversold:"RSI Daily en zone de survente potentielle.",
+  rsi_overbought:"RSI Daily en zone de surachat potentielle."
+};
+function badgesHTML(list){ return `<div class="badges">` + list.map(x=>`<span class="badge ${x.c}" title="${x.k}">${x.k}</span>`).join('') + `</div>`; }
 
 /* ==== Load data ==== */
 async function loadData(){
@@ -251,13 +247,14 @@ async function loadData(){
     tokensData = json.tokens||[];
     document.getElementById('lastupdate').textContent = 'Dernière MàJ : ' + (json.updated_at||'—');
     renderTable(tokensData);
-    renderCards(tokensData);
+    renderCardsDetailed(tokensData);
   }catch(e){
     debug('loadData() failed: '+ (e.message||e));
     document.getElementById('lastupdate').textContent = 'Erreur de chargement de data.json';
   }
 }
 
+/* ==== Table ==== */
 function renderTable(list){
   tbody.innerHTML=''; rows.length=0;
   if(!list.length){ emptyMsg.style.display='block'; return; }
@@ -317,7 +314,6 @@ function addRow(t){
   tbody.appendChild(tr);
   rows.push(tr);
 }
-
 function applyThresholds(){
   rows.forEach(r=>{
     const mctvl = parseFloat(r.dataset.mctvl);
@@ -352,7 +348,7 @@ function applyThresholds(){
   });
 }
 
-/* Drawer */
+/* ==== Drawer ==== */
 const drawer = document.getElementById('drawer');
 const backdrop = document.getElementById('backdrop');
 const dTitle  = document.getElementById('d-title');
@@ -405,7 +401,7 @@ function renderDetails(r){
     <div class="k">RSI H4 (14)</div><div class="num">${r.dataset.rsih4? nf2.format(+r.dataset.rsih4):'—'}</div>
     <div class="k">Source TVL</div><div class="num">${r.dataset.tvlsrc||'—'}</div>`;
 
-  // Signaux dans le drawer
+  // Badges dans le drawer
   const t = {
     tvl: (r.dataset.tvl? +r.dataset.tvl : null),
     mc_tvl: (r.dataset.mctvl? +r.dataset.mctvl : null),
@@ -414,7 +410,7 @@ function renderDetails(r){
     x_ath_mc: (r.dataset.xathmc? +r.dataset.xathmc : null),
     rsi_d: (r.dataset.rsid? +r.dataset.rsid : null)
   };
-  dSignals.innerHTML = signalsHTML(buildSignals(t));
+  dSignals.innerHTML = badgesHTML(buildSignals(t));
 
   dFonda.innerHTML = `
     <div class="k">Narratif</div><div>${r.dataset.narr||'—'}</div>
@@ -432,7 +428,7 @@ function renderDetails(r){
   ].filter(Boolean).join(' ');
 }
 
-/* Search & Refresh */
+/* ==== Search & Refresh ==== */
 document.getElementById('search').addEventListener('input', (e)=>{
   const q = e.target.value.trim().toLowerCase();
   rows.forEach(r=>{ r.style.display = r.innerText.toLowerCase().includes(q)? '' : 'none'; });
@@ -446,40 +442,56 @@ autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
 if(autoToggle.checked) startAuto();
 autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
 
-/* Cartes de signaux (sous le tableau) */
+/* ==== Cartes détaillées ==== */
 const cardsToggle = document.getElementById('cardsToggle');
 const cardsWrap = document.getElementById('cardsWrap');
 const cardsGrid = document.getElementById('cardsGrid');
 
-function renderCards(list){
+function renderCardsDetailed(list){
   if(!cardsToggle.checked){ cardsWrap.classList.remove('show'); return; }
   cardsWrap.classList.add('show');
   cardsGrid.innerHTML = '';
   list.forEach(t=>{
     const sigs = buildSignals(t);
+    const metricsLine = [
+      (t.tvl!=null?`TVL ${money(t.tvl)}`:`TVL N/D`),
+      (t.mc_tvl!=null?`MC/TVL ${fmtNum2(t.mc_tvl)}`:`MC/TVL —`),
+      (t.rsi_d!=null?`RSI D ${nf2.format(+t.rsi_d)}`:`RSI D —`),
+      (t.x_ath_mc!=null?`x ATH Mcap x${nf1.format(+t.x_ath_mc)}`:`x ATH Mcap —`)
+    ].join(' · ');
+
+    // liste explicative
+    const explain = sigs.map(s=>{
+      const txt = SIGNAL_EXPLAIN[s.key] || '';
+      return `<li><span class="badge ${s.c}" style="margin-right:6px">${s.k}</span>${txt}</li>`;
+    }).join('');
+
     const div = document.createElement('div');
     div.className = 'sig-card';
     div.innerHTML = `
       <div class="sig-head">
         <div>
           <div class="sig-title">${t.symbol}</div>
-          <div class="sig-sub">${t.price!=null ? '$'+nf2.format(+t.price) : '—'} · MC ${money(t.mc)} · TVL ${t.tvl!=null?money(t.tvl):'N/D'}</div>
+          <div class="sig-sub">${t.price!=null ? '$'+nf2.format(+t.price) : '—'} · MC ${money(t.mc)}</div>
         </div>
-        <button class="btn" data-sym="${t.symbol}">Voir</button>
+        <button class="btn" data-sym="${t.symbol}">Détails</button>
       </div>
-      ${signalsHTML(sigs)}
+      <div class="sig-metrics">${metricsLine}</div>
+      ${badgesHTML(sigs)}
+      <hr class="sig-divider">
+      <ul class="sig-list">${explain || '<li>Aucun signal spécifique.</li>'}</ul>
+      <div class="sig-sub" style="margin-top:8px;">Date: ${t.alert_date || '—'} · TVL source: ${t.tvl_source || '—'}</div>
     `;
     div.querySelector('button').addEventListener('click', ()=>{
-      // focus la ligne correspondante si elle existe
       const tr = Array.from(rows).find(r => r.dataset.symbol === t.symbol);
       if(tr){ selectRow(tr, true); window.scrollTo({ top:0, behavior:'smooth' }); }
     });
     cardsGrid.appendChild(div);
   });
 }
-cardsToggle.addEventListener('change', ()=> renderCards(tokensData));
+cardsToggle.addEventListener('change', ()=> renderCardsDetailed(tokensData));
 
-/* Drawer resize */
+/* ==== Drawer resize ==== */
 const resizer = document.getElementById('drawerResizer');
 let drag=false, startX=0, startW=0;
 function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
@@ -503,7 +515,7 @@ function onStopDrag(){ if(!drag) return; drag=false; document.body.classList.rem
 const savedW = parseInt(localStorage.getItem('drawerW'),10);
 if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
 
-/* Init */
+/* ==== Init ==== */
 loadData();
 </script>
 </body>
