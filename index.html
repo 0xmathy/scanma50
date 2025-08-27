@@ -23,9 +23,9 @@
   .card{background:var(--panel);border:1px solid var(--outline);border-radius:14px;box-shadow:0 10px 24px rgba(0,0,0,.35);overflow:hidden}
 
   .table-scroller{width:100%;overflow:auto}
-  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1200px;}
+  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1260px;}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));color:#cfe0ff;text-align:left;font-weight:600;font-size:12px;text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 10px}
-  tbody td{padding:10px 10px;border-bottom:1px solid #0f1422}
+  tbody td{padding:10px 10px;border-bottom:1px solid #0f1422; vertical-align:middle;}
   tbody tr:hover{background:rgba(255,255,255,.03)}
   .token{display:flex;align-items:center;gap:10px}
   .logo{width:20px;height:20px;border-radius:6px;background:linear-gradient(135deg,#1e2440,#2c3f6b)}
@@ -34,7 +34,19 @@
   .num{font-variant-numeric:tabular-nums; white-space:nowrap;}
   .t-good{color:var(--green)} .t-warn{color:var(--amber)} .t-bad{color:var(--red)}
 
-  /* Drawer overlay */
+  /* Badges (signaux) */
+  .badges{display:flex;gap:6px;flex-wrap:wrap}
+  .badge{
+    font-size:11px; line-height:1; padding:6px 8px; border-radius:999px;
+    border:1px solid var(--outline); background:rgba(255,255,255,.03); color:var(--text);
+    white-space:nowrap;
+  }
+  .b-good{ border-color: rgba(41,211,151,.4); box-shadow: inset 0 0 0 999px rgba(41,211,151,.08);}
+  .b-info{ border-color: rgba(106,167,255,.4); box-shadow: inset 0 0 0 999px rgba(106,167,255,.08);}
+  .b-warn{ border-color: rgba(255,200,87,.5); box-shadow: inset 0 0 0 999px rgba(255,200,87,.10);}
+  .b-bad{  border-color: rgba(255,107,107,.5); box-shadow: inset 0 0 0 999px rgba(255,107,107,.10);}
+
+  /* Drawer */
   #drawer{
     position:fixed; top:0; right:0; height:100vh;
     width:var(--drawer-w);
@@ -55,14 +67,12 @@
   #drawer .resizer:hover{ background:rgba(255,255,255,.06); }
   body.resizing #drawer .resizer{ background:rgba(255,255,255,.1); }
 
-  #backdrop{
-    position:fixed; inset:0; background:rgba(0,0,0,.25);
-    opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:900;
-  }
+  #backdrop{ position:fixed; inset:0; background:rgba(0,0,0,.25);
+    opacity:0; pointer-events:none; transition:opacity .2s ease; z-index:900; }
   #backdrop.show{ opacity:1; pointer-events:auto; }
 
   @media (max-width:980px){
-    table{min-width:1000px}
+    table{min-width:1120px}
     #drawer{ width:100%; height:70vh; left:0; right:auto; bottom:0; top:auto; border-left:0; border-top:1px solid var(--outline); transform:translateY(100%); }
     #drawer.open{ transform:translateY(0); }
     #drawer .resizer{ display:none; }
@@ -103,6 +113,7 @@
             <th>RSI H4</th>
             <th class="hide-sm">ATH</th>
             <th>x ATH Mcap</th>
+            <th>Signaux</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -124,6 +135,7 @@
   <div class="content">
     <h4>📊 Marché</h4>
     <div class="kv" id="d-market"></div>
+    <div style="margin:10px 0;"><div id="d-signals" class="badges"></div></div>
     <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
     <h4>🧩 Fonda</h4>
     <div class="kv" id="d-fonda"></div>
@@ -135,6 +147,7 @@
 </aside>
 
 <script>
+/* ==== Helpers ==== */
 const nf2 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const nf1 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
 const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
@@ -149,17 +162,49 @@ const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
 const fmtMult = n => (n==null||isNaN(n)) ? '—' : `x${nf1.format(+n)}`;
 const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
 
+/* ==== State ==== */
 const tbody = document.querySelector('#screener tbody');
 const rows = [];
+let tokensData = [];
 let pinned = false;
+let selectedRow = null;
 
+/* ==== Signals ==== */
+function buildSignals(t){
+  const s = [];
+  // Risque / TVL
+  if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1});
+  // Value
+  if(t.mc_tvl != null && t.mc_tvl <= 3) s.push({k:'💎 MC/TVL≤3', c:'b-good', pri:3});
+  if(t.mc_tvl != null && t.mc_tvl > 12) s.push({k:'MC/TVL>12', c:'b-bad', pri:2});
+  // Momentum vol
+  if(t.var_vol_7_over_30 != null && t.var_vol_7_over_30 >= 1.5) s.push({k:'⚡ Vol7/30≥1.5', c:'b-info', pri:4});
+  // Liquidité
+  if(t.vol_mc_24 != null && t.vol_mc_24 >= 5) s.push({k:'💧 Vol/MC≥5%', c:'b-good', pri:5});
+  if(t.vol_mc_24 != null && t.vol_mc_24 < 1) s.push({k:'Illiquid', c:'b-warn', pri:5});
+  // Upside ATH Mcap
+  if(t.x_ath_mc != null && t.x_ath_mc >= 3) s.push({k:'🎯 x≥3 ATH Mcap', c:'b-info', pri:6});
+  if(t.x_ath_mc != null && t.x_ath_mc < 1) s.push({k:'Near ATH Mcap', c:'b-warn', pri:7});
+  // RSI
+  if(t.rsi_d != null && t.rsi_d <= 35) s.push({k:'🧊 RSI D≤35', c:'b-info', pri:8});
+  if(t.rsi_d != null && t.rsi_d >= 70) s.push({k:'🟥 RSI D≥70', c:'b-bad', pri:8});
+
+  // Garde max 4 badges en priorisant pri puis impact
+  return s.sort((a,b)=>a.pri-b.pri).slice(0,4);
+}
+function signalsHTML(list){
+  return `<div class="badges">` + list.map(x=>`<span class="badge ${x.c}" title="${x.k}">${x.k}</span>`).join('') + `</div>`;
+}
+
+/* ==== Load data ==== */
 async function loadData(){
   try{
     const res = await fetch('data.json', { cache:'no-store' });
     const json = await res.json();
+    tokensData = json.tokens||[];
     document.getElementById('lastupdate').textContent = 'Dernière MàJ : ' + (json.updated_at||'—');
     tbody.innerHTML=''; rows.length=0;
-    (json.tokens||[]).forEach(t=> addRow(t));
+    tokensData.forEach(t=> addRow(t));
     applyThresholds();
   }catch(e){
     document.getElementById('lastupdate').textContent = 'Erreur de chargement de data.json';
@@ -168,6 +213,8 @@ async function loadData(){
 
 function addRow(t){
   const tr=document.createElement('tr');
+
+  // dataset pour le drawer & color rules
   tr.dataset.symbol = t.symbol || '';
   tr.dataset.venue = t.venue || '';
   tr.dataset.price = (t.price!=null ? '$'+nf2.format(+t.price) : '—');
@@ -177,7 +224,6 @@ function addRow(t){
   tr.dataset.athmc = t.ath_mc!=null ? money(t.ath_mc) : '—';
   tr.dataset.xathmc = t.x_ath_mc;
   tr.dataset.pricetarget = (t.price_target_ath_mc!=null ? '$'+nf2.format(+t.price_target_ath_mc) : '—');
-
   tr.dataset.volmc = t.vol_mc_24;
   tr.dataset.vol7tvl = t.vol7_tvl;
   tr.dataset.varv = t.var_vol_7_over_30;
@@ -195,6 +241,8 @@ function addRow(t){
   tr.dataset.gh = t.github || '';
   tr.dataset.wp = t.whitepaper || '';
 
+  const sigs = buildSignals(t);
+
   tr.innerHTML = `
     <td><div class="token"><div class="logo"></div><div><span class="sym">${t.symbol||''}</span><span class="muted"> · ${t.venue||''}</span></div></div></td>
     <td class="num">${t.alert_date || '—'}</td>
@@ -211,7 +259,8 @@ function addRow(t){
     <td class="num">${t.rsi_d!=null ? nf2.format(+t.rsi_d) : '—'}</td>
     <td class="num">${t.rsi_h4!=null ? nf2.format(+t.rsi_h4) : '—'}</td>
     <td class="num hide-sm">${t.ath!=null ? '$'+nf2.format(+t.ath) : '—'}</td>
-    <td class="num">${t.x_ath_mc!=null ? 'x'+nf1.format(+t.x_ath_mc) : '—'}</td>`;
+    <td class="num">${t.x_ath_mc!=null ? 'x'+nf1.format(+t.x_ath_mc) : '—'}</td>
+    <td>${signalsHTML(sigs)}</td>`;
 
   tr.addEventListener('click', ()=>{ selectRow(tr, true); });
   tr.addEventListener('mouseenter', ()=>{ if(!pinned) selectRow(tr, false); });
@@ -220,6 +269,14 @@ function addRow(t){
   rows.push(tr);
 }
 
+function selectRow(tr, openDrawerIfClosed){
+  selectedRow = tr;
+  rows.forEach(r => r.classList.toggle('selected', r===tr));
+  renderDetails(tr);
+  if(openDrawerIfClosed) openDrawer();
+}
+
+/* Color thresholds (inchangé) */
 function applyThresholds(){
   rows.forEach(r=>{
     const mctvl = parseFloat(r.dataset.mctvl);
@@ -306,12 +363,13 @@ function onStopDrag(){
 const savedW = parseInt(localStorage.getItem('drawerW'),10);
 if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
 
-/* Details */
+/* Detail content */
 const dTitle  = document.getElementById('d-title');
 const dMarket = document.getElementById('d-market');
 const dFonda  = document.getElementById('d-fonda');
 const dSocial = document.getElementById('d-social');
 const dLinks  = document.getElementById('d-links');
+const dSignals= document.getElementById('d-signals');
 
 function renderDetails(r){
   dTitle.textContent = `${r.dataset.symbol} · ${r.dataset.venue}`;
@@ -334,6 +392,17 @@ function renderDetails(r){
     <div class="k">RSI Daily (14)</div><div class="num">${r.dataset.rsid? nf2.format(+r.dataset.rsid):'—'}</div>
     <div class="k">RSI H4 (14)</div><div class="num">${r.dataset.rsih4? nf2.format(+r.dataset.rsih4):'—'}</div>
     <div class="k">Source TVL</div><div class="num">${r.dataset.tvlsrc||'—'}</div>`;
+
+  // Recrée un petit objet pour les signaux
+  const t = {
+    tvl: (r.dataset.tvl? +r.dataset.tvl : null),
+    mc_tvl: (r.dataset.mctvl? +r.dataset.mctvl : null),
+    var_vol_7_over_30: (r.dataset.varv? +r.dataset.varv : null),
+    vol_mc_24: (r.dataset.volmc? +r.dataset.volmc : null),
+    x_ath_mc: (r.dataset.xathmc? +r.dataset.xathmc : null),
+    rsi_d: (r.dataset.rsid? +r.dataset.rsid : null)
+  };
+  dSignals.innerHTML = signalsHTML(buildSignals(t));
 
   dFonda.innerHTML = `
     <div class="k">Narratif</div><div>${r.dataset.narr||'—'}</div>
@@ -366,10 +435,47 @@ if(autoToggle.checked) startAuto();
 autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
 
 /* Row selection */
+function openDrawer(){ drawer.classList.add('open'); backdrop.classList.add('show'); }
+function closeDrawer(){ drawer.classList.remove('open'); backdrop.classList.remove('show'); }
+const drawer = document.getElementById('drawer');
+const backdrop = document.getElementById('backdrop');
+const openBtn = document.getElementById('openDetails');
+const closeBtn = document.getElementById('closeDrawer');
+const pinBtn = document.getElementById('pinBtn');
+let drawerOpen = false, pinned=false;
+
+openBtn.addEventListener('click', ()=>{ drawerOpen ? closeDrawer() : openDrawer(); drawerOpen=!drawerOpen; });
+closeBtn.addEventListener('click', ()=>{ closeDrawer(); drawerOpen=false; });
+backdrop.addEventListener('click', ()=>{ if(!pinned){ closeDrawer(); drawerOpen=false; } });
+pinBtn.addEventListener('click', ()=>{ pinned=!pinned; pinBtn.textContent = pinned ? '📌 Épinglé' : '📌 Épingler'; });
+
+const resizer = document.getElementById('drawerResizer');
+let drag=false, startX=0, startW=0;
+function clamp(n,min,max){ return Math.max(min, Math.min(max, n)); }
+function setDrawerWidth(px){
+  const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-min'))||280;
+  const max = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-max'))||640;
+  const w = clamp(px, min, Math.min(max, window.innerWidth-240));
+  document.documentElement.style.setProperty('--drawer-w', w+'px');
+  localStorage.setItem('drawerW', String(w));
+}
+resizer.addEventListener('mousedown', (e)=>{
+  if(window.matchMedia('(max-width:980px)').matches) return;
+  e.preventDefault(); drag=true; document.body.classList.add('resizing');
+  startX=e.clientX; startW=drawer.getBoundingClientRect().width;
+  window.addEventListener('mousemove', onDrag);
+  window.addEventListener('mouseup', onStopDrag);
+});
+function onDrag(e){ if(!drag) return; const dx = startX - e.clientX; setDrawerWidth(startW + dx); }
+function onStopDrag(){ if(!drag) return; drag=false; document.body.classList.remove('resizing');
+  window.removeEventListener('mousemove', onDrag); window.removeEventListener('mouseup', onStopDrag); }
+const savedW = parseInt(localStorage.getItem('drawerW'),10);
+if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
+
 function selectRow(tr, openDrawerIfClosed){
   rows.forEach(r => r.classList.toggle('selected', r===tr));
   renderDetails(tr);
-  if(openDrawerIfClosed) openDrawer();
+  if(openDrawerIfClosed){ openDrawer(); drawerOpen=true; }
 }
 
 /* Init */
