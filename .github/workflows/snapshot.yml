@@ -20,10 +20,13 @@ jobs:
       - name: Install dependencies
         run: npm install csv-parse@5
 
-      - name: Run fetch_and_build
-        run: node fetch_and_build.js
+      - name: Run fetch_and_build (CMC only + Llama TVL)
+        env:
+          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
+        run: node scripts/fetch_and_build.js
 
-      - name: Commit & push data.json
+      - name: Commit & push data.json (always)
+        if: always()
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
