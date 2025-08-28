@@ -1,30 +1,48 @@
 // scripts/fetch_and_build.js
-// Node 18+ (fetch natif). Workflow: .github/workflows/snapshot.yml
-// Génère data.json à partir de deux feuilles Google Sheet (history + alerte) puis enrichit via CoinGecko + DeFiLlama.
+// Node 18+ (fetch natif). Génère data.json depuis Google Sheets (history + alerte), enrichi via CoinGecko + DeFiLlama.
 
 import fs from 'fs';
 import { parse } from 'csv-parse/sync';
 
-// ========== CONFIG SHEETS ==========
-// history (publié en CSV : DateKey + asset)
+/* =========================
+   CONFIG GOOGLE SHEETS
+   ========================= */
 const SHEET_URL_HISTORY =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=916004394&single=true&output=csv";
 
-// alerte (colonne E:E = asset) — via export direct CSV
 const SHEET_URL_ALERTE =
   process.env.SHEET_URL_ALERTE ||
   "https://docs.google.com/spreadsheets/d/1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8/export?format=csv&gid=0&range=E:E";
 
-// ========== API ENDPOINTS ==========
+/* =========================
+   ENDPOINTS
+   ========================= */
 const CG_BASE = "https://api.coingecko.com/api/v3";
 const LLAMA_BASE = "https://api.llama.fi";
 
-// ========== UTILS ==========
+/* =========================
+   UTILS
+   ========================= */
 const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+async function safeFetchJson(url, label, retries=2, delay=400){
+  for(let i=0;i<=retries;i++){
+    try{
+      const res = await fetch(url);
+      if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      return await res.json();
+    }catch(e){
+      if(i===retries){ console.warn(`❌ ${label}: ${e.message}`); return null; }
+      console.warn(`⚠️  ${label} retry ${i+1}/${retries}… (${e.message})`);
+      await sleep(delay);
+    }
+  }
+  return null;
+}
 
 function normalizeSymbol(asset){
   if(!asset) return "";
-  const core = String(asset).split(':').pop().trim(); // "BINANCE:AVAXUSDT" → "AVAXUSDT"
+  const core = String(asset).split(':').pop().trim();
   return core.replace(/USDT|USD|USDC|PERP|_PERP|\/.*$/i,"").trim().toUpperCase();
 }
 function parseVenue(asset){
@@ -49,18 +67,12 @@ async function fetchCsv(url, label){
   if(!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText} sur ${label}`);
   const text = await res.text();
 
-  // Essai avec colonnes nommées
+  // Essai avec entêtes
   let rows = [];
-  try {
-    rows = parse(text, { columns: true, skip_empty_lines: true });
-  } catch(e) {
-    // ignore -> retente plus bas
-  }
-  // Si une seule colonne sans "asset" comme nom, normalise en { asset: valeur }
+  try { rows = parse(text, { columns: true, skip_empty_lines: true }); } catch(_){}
   if(rows.length && Object.keys(rows[0]).length === 1 && !('asset' in rows[0])) {
     const onlyKey = Object.keys(rows[0])[0];
-    rows = rows.map(r => ({ asset: r[onlyKey] }));
-    return rows;
+    return rows.map(r => ({ asset: r[onlyKey] }));
   }
   if(rows.length) return rows;
 
@@ -69,31 +81,32 @@ async function fetchCsv(url, label){
   return raw.map(arr => ({ asset: (arr && arr[0]) ? String(arr[0]) : '' }));
 }
 
-// ========== 1) COLLECT ASSETS FROM SHEETS ==========
+/* =========================
+   SHEETS → LISTE TOKENS
+   ========================= */
 async function collectAssetsFromSheets(){
   console.log("➡️  Lecture CSV: history…");
-  const recH = await fetchCsv(SHEET_URL_HISTORY, "history");
+  let recH = [];
+  try { recH = await fetchCsv(SHEET_URL_HISTORY, "history"); }
+  catch(e){ console.warn("❌ history:", e.message); }
 
+  console.log("➡️  Lecture CSV: alerte…");
   let recA = [];
   if(SHEET_URL_ALERTE){
-    console.log("➡️  Lecture CSV: alerte…");
-    try {
-      recA = await fetchCsv(SHEET_URL_ALERTE, "alerte");
-    } catch(e){
-      console.warn("⚠️  Alerte non chargée:", e.message);
-    }
+    try { recA = await fetchCsv(SHEET_URL_ALERTE, "alerte"); }
+    catch(e){ console.warn("❌ alerte:", e.message); }
   } else {
-    console.warn("⚠️  SHEET_URL_ALERTE non défini → on ignore l’onglet alerte");
+    console.warn("⚠️  SHEET_URL_ALERTE non défini");
   }
 
   const seen = new Set();
   const out = [];
 
-  // Filtre history ≤ 2 jours via DateKey (YYYY-MM-DD)
   const today = new Date();
   const cutoff = new Date(today.getTime() - 2*24*3600*1000);
   const cutoffYMD = ymdParis(cutoff);
 
+  // history ≤ 2j
   for(const row of recH){
     const asset = getAssetField(row);
     if(!asset) continue;
@@ -105,155 +118,111 @@ async function collectAssetsFromSheets(){
 
     if(seen.has(symbol)) continue;
     seen.add(symbol);
-
-    out.push({
-      symbol,
-      venue: parseVenue(asset),
-      alert_date: dk || ymdParis(today),
-      _source: "history"
-    });
+    out.push({ symbol, venue: parseVenue(asset), alert_date: dk || ymdParis(today), _src: "history" });
   }
 
+  // alerte (aujourd’hui)
   for(const row of recA){
     const asset = getAssetField(row);
     if(!asset) continue;
     const symbol = normalizeSymbol(asset);
-    if(!symbol) continue;
-
-    if(seen.has(symbol)) continue;
+    if(!symbol || seen.has(symbol)) continue;
     seen.add(symbol);
-
-    out.push({
-      symbol,
-      venue: parseVenue(asset),
-      alert_date: ymdParis(today),
-      _source: "alerte"
-    });
+    out.push({ symbol, venue: parseVenue(asset), alert_date: ymdParis(today), _src: "alerte" });
   }
 
-  console.log(`✅ ${out.length} tokens agrégés (history ≤2j + alerte aujourd’hui)`);
+  console.log(`✅ ${out.length} tokens (history ≤2j + alerte aujourd’hui)`);
   return out;
 }
 
-// ========== 2) COINGECKO HELPERS ==========
+/* =========================
+   COINGECKO
+   ========================= */
 async function cgSearchIdBySymbol(symbol){
-  // CoinGecko /search → retourne des coins avec .symbol, .id, .name
-  const url = `${CG_BASE}/search?query=${encodeURIComponent(symbol)}`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(`CG search ${res.status}`);
-  const data = await res.json();
-
-  // Meilleur match: symbol exact (case-insensitive) et score max
-  const coins = (data.coins||[]).filter(c => c && c.symbol);
-  const exact = coins.filter(c => String(c.symbol).toUpperCase() === symbol.toUpperCase());
-  const pick = (exact[0] || coins[0] || null);
+  const data = await safeFetchJson(`${CG_BASE}/search?query=${encodeURIComponent(symbol)}`, `CG search ${symbol}`);
+  const coins = data?.coins || [];
+  const exact = coins.filter(c => String(c.symbol||'').toUpperCase() === symbol.toUpperCase());
+  const pick = exact[0] || coins[0] || null;
   return pick ? pick.id : null;
 }
-
 async function cgMarkets(ids){
-  // /coins/markets?vs_currency=usd&ids=...
   if(!ids.length) return [];
   const url = `${CG_BASE}/coins/markets?vs_currency=usd&ids=${encodeURIComponent(ids.join(','))}&price_change_percentage=24h,7d,30d,1y&per_page=250`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(`CG markets ${res.status}`);
-  return await res.json();
+  const data = await safeFetchJson(url, "CG markets");
+  return Array.isArray(data) ? data : [];
 }
-
 async function cgMarketChart(id, days=30, interval=''){
-  // /coins/{id}/market_chart?vs_currency=usd&days=30&interval=hourly
   const url = `${CG_BASE}/coins/${id}/market_chart?vs_currency=usd&days=${days}${interval?`&interval=${interval}`:''}`;
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(`CG chart ${id} ${res.status}`);
-  return await res.json();
+  const data = await safeFetchJson(url, `CG chart ${id} ${days}d`);
+  return data || { prices:[], total_volumes:[] };
 }
 
-// ========== 3) RSI ==========
+/* =========================
+   RSI (Wilder)
+   ========================= */
 function computeRSI(closes, period=14){
-  // Wilder’s RSI
   if(!closes || closes.length < period+1) return null;
   const deltas = [];
   for(let i=1;i<closes.length;i++) deltas.push(closes[i]-closes[i-1]);
-
   let gain=0, loss=0;
-  for(let i=0;i<period;i++){
-    const d = deltas[i];
-    if(d>0) gain += d; else loss -= d;
-  }
-  gain /= period; loss /= period;
-
+  for(let i=0;i<period;i++){ const d=deltas[i]; if(d>0) gain+=d; else loss-=d; }
+  gain/=period; loss/=period;
   for(let i=period;i<deltas.length;i++){
-    const d=deltas[i];
-    const g = d>0 ? d : 0;
-    const l = d<0 ? -d : 0;
-    gain = (gain*(period-1) + g)/period;
-    loss = (loss*(period-1) + l)/period;
+    const d=deltas[i]; const g=d>0?d:0; const l=d<0?-d:0;
+    gain=(gain*(period-1)+g)/period; loss=(loss*(period-1)+l)/period;
   }
   if(loss===0) return 100;
-  const rs = gain / loss;
+  const rs = gain/loss;
   return 100 - (100/(1+rs));
 }
 
-// ========== 4) LLAMA HELPERS (best-effort) ==========
+/* =========================
+   DEFI LLAMA (best-effort)
+   ========================= */
 let LLAMA_PROTOCOLS_CACHE = null;
 async function llamaProtocols(){
   if(LLAMA_PROTOCOLS_CACHE) return LLAMA_PROTOCOLS_CACHE;
-  const res = await fetch(`${LLAMA_BASE}/protocols`);
-  if(!res.ok) throw new Error(`Llama protocols ${res.status}`);
-  LLAMA_PROTOCOLS_CACHE = await res.json();
+  const data = await safeFetchJson(`${LLAMA_BASE}/protocols`, "Llama protocols");
+  LLAMA_PROTOCOLS_CACHE = Array.isArray(data) ? data : [];
   return LLAMA_PROTOCOLS_CACHE;
 }
 async function matchTVL(symbol){
   try{
     const protos = await llamaProtocols();
     const sym = symbol.toUpperCase();
-    // Heuristique: name ou symbol approchant (commence par / égal)
     const cand = protos.find(p =>
       (p.symbol && String(p.symbol).toUpperCase() === sym) ||
       (p.symbol && String(p.symbol).toUpperCase().startsWith(sym)) ||
       (p.name && String(p.name).toUpperCase() === sym)
     ) || protos.find(p => p.name && p.name.toUpperCase().startsWith(sym));
-    if(!cand) return { tvl: null, source: null };
-
-    // TVL total
+    if(!cand) return { tvl:null, source:null };
     const tvl = (typeof cand.tvl === 'number') ? cand.tvl : null;
     return { tvl, source: `protocol:${cand.slug||cand.name}` };
-  }catch(e){
-    return { tvl:null, source:null };
-  }
+  }catch{ return { tvl:null, source:null }; }
 }
 
-// ========== 5) ENRICH PIPELINE ==========
+/* =========================
+   ENRICH
+   ========================= */
 async function enrichTokens(tokens){
-  // 5.1 Résolution des ids CoinGecko
+  // IDs CG
   for(const t of tokens){
-    try{
-      t._cg_id = await cgSearchIdBySymbol(t.symbol);
-      await sleep(200); // politeness
-    }catch(e){
-      console.warn(`CG search fail ${t.symbol}:`, e.message);
-      t._cg_id = null;
-    }
+    t._cg_id = await cgSearchIdBySymbol(t.symbol);
+    await sleep(120);
   }
-  const idMap = tokens.filter(t=>t._cg_id).reduce((m,t)=>{ m[t._cg_id]=t; return m; }, {});
+  const idMap = tokens.filter(t=>t._cg_id).reduce((m,t)=>{m[t._cg_id]=t; return m;}, {});
 
-  // 5.2 Marché (prix, MC, variations, vol, supply)
+  // Markets
   const ids = Object.keys(idMap);
   let markets = [];
-  try{
-    for(let i=0;i<ids.length;i+=150){
-      const batch = ids.slice(i,i+150);
-      const res = await cgMarkets(batch);
-      markets = markets.concat(res||[]);
-      await sleep(300);
-    }
-  }catch(e){
-    console.warn('CG markets error:', e.message);
+  for(let i=0;i<ids.length;i+=150){
+    const batch = ids.slice(i,i+150);
+    const res = await cgMarkets(batch);
+    markets = markets.concat(res);
+    await sleep(200);
   }
-
-  // Appliquer markets
   markets.forEach(m=>{
-    const t = idMap[m.id];
-    if(!t) return;
+    const t = idMap[m.id]; if(!t) return;
     t.price = m.current_price ?? null;
     t.mc = m.market_cap ?? null;
     t.rank = m.market_cap_rank ?? null;
@@ -272,103 +241,77 @@ async function enrichTokens(tokens){
     t.ath_date = m.ath_date ? String(m.ath_date).slice(0,10) : null;
     t.ath_change_pct = (typeof m.ath_change_percentage === 'number') ? m.ath_change_percentage : null;
 
-    // ratios init
-    t.vol_mc_24 = (t.volume_24h && t.mc) ? (t.volume_24h / t.mc * 100) : null; // en %
+    t.vol_mc_24 = (t.volume_24h && t.mc) ? (t.volume_24h / t.mc * 100) : null;
   });
 
-  // 5.3 TVL (best effort via DeFiLlama)
+  // TVL
   for(const t of tokens){
-    try{
-      const { tvl, source } = await matchTVL(t.symbol);
-      t.tvl = tvl;
-      t.tvl_source = source;
-      await sleep(150);
-    }catch(e){
-      t.tvl = null; t.tvl_source = null;
-    }
-  }
-  tokens.forEach(t=>{
+    const { tvl, source } = await matchTVL(t.symbol);
+    t.tvl = tvl; t.tvl_source = source;
     t.mc_tvl = (t.mc && t.tvl) ? (t.mc / t.tvl) : null;
-  });
+    await sleep(120);
+  }
 
-  // 5.4 ATH Mcap approx + x_ath_mc + price_target_ath_mc
+  // ATH Mcap & x
   tokens.forEach(t=>{
     if(t.ath!=null && t.price!=null && t.mc!=null){
-      // Approximation: ath_mc ≈ ath_price * circulating_supply_today
-      // Comme current_mc = price * circ_today → x_ath_mc ≈ ath_price / price
       const ath_mc = (t.circulating_supply!=null) ? (t.ath * t.circulating_supply) : (t.mc * (t.ath / t.price));
       t.ath_mc = ath_mc ?? null;
       t.x_ath_mc = (ath_mc && t.mc) ? (ath_mc / t.mc) : ((t.price && t.ath) ? (t.ath / t.price) : null);
       t.price_target_ath_mc = (t.x_ath_mc && t.price) ? (t.price * t.x_ath_mc) : null;
-    } else {
-      t.ath_mc = null;
-      t.x_ath_mc = null;
-      t.price_target_ath_mc = null;
-    }
+    } else { t.ath_mc=null; t.x_ath_mc=null; t.price_target_ath_mc=null; }
   });
 
-  // 5.5 Volumes 7j / 30j + RSI Daily & H4
+  // RSI & volumes 7/30
   for(const t of tokens){
-    if(!t._cg_id){ t.rsi_d=null; t.rsi_h4=null; t.vol7_avg=null; t.vol30_avg=null; t.vol7_tvl=null; t.var_vol_7_over_30=null; continue; }
-    try{
-      // Daily closes (90j) pour RSI daily
-      const daily = await cgMarketChart(t._cg_id, 90, 'daily'); // interval=daily ok
-      const closesD = (daily.prices||[]).map(p=> p[1]).filter(Number.isFinite);
-      t.rsi_d = computeRSI(closesD, 14);
+    if(!t._cg_id){ t.rsi_d=t.rsi_h4=t.vol7_avg=t.vol30_avg=t.var_vol_7_over_30=t.vol7_tvl=null; continue; }
 
-      // Hourly (7j) pour RSI H4 (on regroupe 4 bougies/h → 4h)
-      const hourly = await cgMarketChart(t._cg_id, 7, 'hourly');
-      const closesH = (hourly.prices||[]).map(p=> p[1]).filter(Number.isFinite);
-      // agrège par 4 heures (4 * 60min / 60min = 4 points) – approximation
-      const h4 = [];
-      for(let i=0;i<closesH.length;i+=4){ h4.push(closesH[Math.min(i+3, closesH.length-1)]); }
-      t.rsi_h4 = computeRSI(h4, 14);
+    const daily = await cgMarketChart(t._cg_id, 90, 'daily');
+    const closesD = (daily?.prices||[]).map(p=> p[1]).filter(Number.isFinite);
+    t.rsi_d = computeRSI(closesD, 14);
 
-      // Volumes: /market_chart (30j)
-      const chart30 = await cgMarketChart(t._cg_id, 30);
-      const vols = (chart30.total_volumes||[]).map(v=> v[1]).filter(Number.isFinite);
-      if(vols.length){
-        const last7 = vols.slice(-7);
-        const last30 = vols.slice(-30);
-        const avg7 = last7.length ? (last7.reduce((a,b)=>a+b,0)/last7.length) : null;
-        const avg30 = last30.length ? (last30.reduce((a,b)=>a+b,0)/last30.length) : null;
+    const hourly = await cgMarketChart(t._cg_id, 7, 'hourly');
+    const closesH = (hourly?.prices||[]).map(p=> p[1]).filter(Number.isFinite);
+    const h4=[]; for(let i=0;i<closesH.length;i+=4){ h4.push(closesH[Math.min(i+3, closesH.length-1)]); }
+    t.rsi_h4 = computeRSI(h4, 14);
 
-        t.vol7_avg = avg7;
-        t.vol30_avg = avg30;
-        t.var_vol_7_over_30 = (avg7 && avg30) ? (avg7/avg30) : null;
-        t.vol7_tvl = (avg7 && t.tvl) ? (avg7 / t.tvl * 100) : null; // %
-      } else {
-        t.vol7_avg = null; t.vol30_avg=null; t.var_vol_7_over_30=null; t.vol7_tvl=null;
-      }
-      await sleep(250);
-    }catch(e){
-      console.warn(`Chart fail ${t.symbol}:`, e.message);
-      t.rsi_d=null; t.rsi_h4=null; t.vol7_avg=null; t.vol30_avg=null; t.var_vol_7_over_30=null; t.vol7_tvl=null;
+    const chart30 = await cgMarketChart(t._cg_id, 30);
+    const vols = (chart30?.total_volumes||[]).map(v=> v[1]).filter(Number.isFinite);
+    if(vols.length){
+      const last7 = vols.slice(-7), last30 = vols.slice(-30);
+      const avg7  = last7.length  ? (last7.reduce((a,b)=>a+b,0)/last7.length)   : null;
+      const avg30 = last30.length ? (last30.reduce((a,b)=>a+b,0)/last30.length) : null;
+      t.vol7_avg = avg7; t.vol30_avg = avg30;
+      t.var_vol_7_over_30 = (avg7 && avg30) ? (avg7/avg30) : null;
+      t.vol7_tvl = (avg7 && t.tvl) ? (avg7 / t.tvl * 100) : null;
+    } else {
+      t.vol7_avg=t.vol30_avg=t.var_vol_7_over_30=t.vol7_tvl=null;
     }
+    await sleep(200);
   }
 
-  // Nettoyage décimales (limiter bruit)
+  // arrondis doux
   const round = (n, d=6)=> (typeof n==='number' && isFinite(n)) ? +n.toFixed(d) : n;
   tokens.forEach(t=>{
     ['price','mc','tvl','mc_tvl','vol_mc_24','vol7_tvl','var_vol_7_over_30','rsi_d','rsi_h4','ath','ath_mc','x_ath_mc','price_target_ath_mc']
-      .forEach(k=> { if(t[k]!=null) t[k]=round(t[k], k.includes('mc_tvl')||k==='x_ath_mc' ? 2 : 6); });
+      .forEach(k=> { if(t[k]!=null) t[k]=round(t[k], k==='mc_tvl'||k==='x_ath_mc'?2:6); });
   });
 
   return tokens;
 }
 
-// ========== 6) MAIN ==========
+/* =========================
+   MAIN (ne throw jamais)
+   ========================= */
 async function main(){
+  let tokens = [];
   try{
-    console.log("➡️  Collect tokens depuis Sheets…");
+    console.log("➡️  Collect depuis Sheets…");
     const base = await collectAssetsFromSheets();
-
-    // Prépare tableau de travail
-    const tokens = base.map(x => ({
+    tokens = base.map(x => ({
       symbol: x.symbol,
       venue: x.venue,
       alert_date: x.alert_date,
-      // champs enrichis
       price:null, d24:null, d7:null, d30:null, d1y:null,
       mc:null, tvl:null, mc_tvl:null,
       volume_24h:null, vol_mc_24:null,
@@ -381,23 +324,14 @@ async function main(){
       tvl_source:null
     }));
 
-    console.log("➡️  Enrichissement CoinGecko + DeFiLlama…");
-    await enrichTokens(tokens);
-
-    const data = {
-      updated_at: new Date().toISOString(),
-      tokens
-    };
-
-    fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
-    console.log(`✅ Écrit ${process.cwd()}/data.json avec ${tokens.length} tokens.`);
+    console.log("➡️  Enrich (Coingecko + DeFiLlama) …");
+    tokens = await enrichTokens(tokens);
   }catch(e){
-    console.error("❌ Erreur:", e.message);
-    // Écrit tout de même un JSON vide pour que le front ne casse pas
-    const data = { updated_at: new Date().toISOString(), tokens: [] };
+    console.error("❌ Pipeline erreur:", e.message);
+  }finally{
+    const data = { updated_at: new Date().toISOString(), tokens };
     fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
-    // Rejette pour status non-0 dans GitHub Actions (utile pour debug)
-    throw e;
+    console.log(`✅ data.json écrit (${tokens.length} tokens).`);
   }
 }
 
