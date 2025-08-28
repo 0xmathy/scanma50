@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Scan MA50 v1.2 — Screener</title>
+<title>Screener - MA50 alertes - Académie des rois </title>
 <style>
   :root{
     --bg:#0b1016;--panel:#0f1422;--panel-2:#121a2b;--text:#e9eef5;--muted:#9aa7b8;
@@ -72,6 +72,7 @@
   .sig-explain li { margin:0 0 12px 0; font-size:14px; line-height:1.45; color:var(--text);}
   .sig-explain .badge { margin-right:8px; vertical-align:middle;}
   .sig-explain p {margin:6px 0 0 22px; color:var(--muted);}
+
   #drawer{position:fixed; top:0; right:0; height:100vh; width:var(--drawer-w);
     background:var(--panel); border-left:1px solid var(--outline);
     box-shadow:-20px 0 40px rgba(0,0,0,.45); transform:translateX(100%); transition:transform .2s ease;
@@ -109,6 +110,7 @@
   </header>
   <div class="note" id="lastupdate">Chargement…</div>
   <div id="debug"></div>
+
   <div class="card"><div class="table-scroller">
     <table id="screener">
       <thead><tr>
@@ -125,22 +127,404 @@
     </table>
     <div class="note" id="emptyMsg" style="display:none;padding:10px;">Aucune ligne</div>
   </div></div>
+
   <div id="cardsWrap"><div class="grid" id="cardsGrid"></div></div>
 </div>
+
 <div id="backdrop"></div>
-<aside id="drawer"><div class="resizer" id="drawerResizer"></div>
-  <div class="head"><h3 id="d-title">Détails</h3>
-    <div class="btns"><button id="pinBtn" class="btn">📌 Épingler</button><button id="closeDrawer" class="btn">✖</button></div></div>
-  <div class="content"><h4>📊 Marché</h4><div class="kv" id="d-market"></div>
+<aside id="drawer" aria-hidden="true">
+  <div class="resizer" id="drawerResizer" title="Redimensionner"></div>
+  <div class="head">
+    <h3 id="d-title">Détails</h3>
+    <div class="btns">
+      <button id="pinBtn" class="btn" title="Épingler / libérer">📌 Épingler</button>
+      <button id="closeDrawer" class="btn" title="Fermer">✖</button>
+    </div>
+  </div>
+  <div class="content">
+    <h4>📊 Marché</h4>
+    <div class="kv" id="d-market"></div>
     <div style="margin:10px 0;"><div id="d-signals" class="badges"></div></div>
-    <hr><h4>🧩 Fonda</h4><div class="kv" id="d-fonda"></div>
-    <hr><h4>📣 Social & Liens</h4><div class="kv" id="d-social"></div>
-    <div class="links" id="d-links"></div>
+    <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
+    <h4>🧩 Fonda</h4>
+    <div class="kv" id="d-fonda"></div>
+    <hr style="border:0;border-top:1px solid var(--outline);margin:12px 0">
+    <h4>📣 Social & Liens</h4>
+    <div class="kv" id="d-social"></div>
+    <div class="links" id="d-links" style="margin-top:8px"></div>
   </div>
 </aside>
 
 <script>
-/* Le gros script de gestion (voir mon message précédent) */
+/* ===== Debug helpers ===== */
+const debugBox = document.getElementById('debug');
+function debug(msg){
+  try{
+    debugBox.classList.add('show');
+    debugBox.textContent += (debugBox.textContent ? '\n' : '') + msg;
+    console.error(msg);
+  }catch(_){}
+}
+window.addEventListener('error', (e)=> debug('JS Error: '+ (e.error?.message || e.message)));
+window.addEventListener('unhandledrejection', (e)=> debug('Promise Rejection: '+ (e.reason?.message || e.reason)));
+
+/* ==== Formatters ==== */
+const nf2 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
+const nf1 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
+const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
+  Math.abs(n) >= 1e12 ? nf2.format(n/1e12)+'T' :
+  Math.abs(n) >= 1e9  ? nf2.format(n/1e9)+'B'  :
+  Math.abs(n) >= 1e6  ? nf2.format(n/1e6)+'M'  :
+  Math.abs(n) >= 1e3  ? nf2.format(n/1e3)+'K'  :
+  nf2.format(n)
+);
+const fmtPct0 = n => (n==null||isNaN(n)) ? '—' : `${Math.round(+n)}%`;
+const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
+const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
+
+/* ==== Elements & State ==== */
+const tbody = document.querySelector('#screener tbody');
+const emptyMsg = document.getElementById('emptyMsg');
+const lastupdate = document.getElementById('lastupdate');
+const searchInput = document.getElementById('search');
+const btnRefresh = document.getElementById('btnRefresh');
+const autoToggle = document.getElementById('autoToggle');
+const cardsToggle = document.getElementById('cardsToggle');
+const cardsWrap = document.getElementById('cardsWrap');
+const cardsGrid = document.getElementById('cardsGrid');
+
+const drawer = document.getElementById('drawer');
+const backdrop = document.getElementById('backdrop');
+const dTitle  = document.getElementById('d-title');
+const dMarket = document.getElementById('d-market');
+const dFonda  = document.getElementById('d-fonda');
+const dSocial = document.getElementById('d-social');
+const dLinks  = document.getElementById('d-links');
+const dSignals= document.getElementById('d-signals');
+const openBtn = document.getElementById('openDetails');
+const closeBtn = document.getElementById('closeDrawer');
+const pinBtn = document.getElementById('pinBtn');
+const resizer = document.getElementById('drawerResizer');
+
+const rows = [];
+let tokensData = [];
+let pinned = false;
+let drawerOpen = false;
+let autoTimer=null;
+
+/* ==== Signals & explanations ==== */
+function buildSignals(t){
+  const s = [];
+  if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1, key:'tvl_nd'});
+  if(t.mc_tvl != null && t.mc_tvl <= 3) s.push({k:'💎 MC/TVL≤3', c:'b-good', pri:3, key:'mctvl_low'});
+  if(t.mc_tvl != null && t.mc_tvl > 12) s.push({k:'MC/TVL>12', c:'b-bad', pri:2, key:'mctvl_high'});
+  if(t.var_vol_7_over_30 != null && t.var_vol_7_over_30 >= 1.5) s.push({k:'⚡ Vol7/30≥1.5', c:'b-info', pri:4, key:'mom_vol'});
+  if(t.vol_mc_24 != null && t.vol_mc_24 >= 5) s.push({k:'💧 Vol/MC≥5%', c:'b-good', pri:5, key:'liq_good'});
+  if(t.vol_mc_24 != null && t.vol_mc_24 < 1) s.push({k:'Illiquid', c:'b-warn', pri:5, key:'liq_low'});
+  if(t.x_ath_mc != null && t.x_ath_mc >= 3) s.push({k:'🎯 x≥3 ATH Mcap', c:'b-info', pri:6, key:'upside'});
+  if(t.x_ath_mc != null && t.x_ath_mc < 1) s.push({k:'Near ATH Mcap', c:'b-warn', pri:7, key:'near_ath'});
+  if(t.rsi_d != null && t.rsi_d <= 35) s.push({k:'🧊 RSI D≤35', c:'b-info', pri:8, key:'rsi_oversold'});
+  if(t.rsi_d != null && t.rsi_d >= 70) s.push({k:'🟥 RSI D≥70', c:'b-bad', pri:8, key:'rsi_overbought'});
+  return s.sort((a,b)=>a.pri-b.pri);
+}
+const SIGNAL_EXPLAIN = {
+  tvl_nd: "Pas de TVL fiable trouvée (match auto DeFiLlama) → ratios TVL incomplets.",
+  mctvl_low: "Capitalisation proche de l’activité on-chain (moins de prime spéculative).",
+  mctvl_high:"Capitalisation tendue vs TVL → prudence (surévaluation potentielle).",
+  mom_vol: "Momentum : le volume moyen 7j dépasse nettement le 30j.",
+  liq_good:"Liquidité saine : volume/MC sur 24h ≥ 5% (slippage réduit).",
+  liq_low: "Faible liquidité : volume/MC sur 24h < 1% (slippage/mèches possibles).",
+  upside:  "Potentiel si retour à l’ATH de market cap (neutralise la dilution).",
+  near_ath:"Proche des sommets historiques de market cap (peu d’upside).",
+  rsi_oversold:"RSI Daily en zone de survente potentielle.",
+  rsi_overbought:"RSI Daily en zone de surachat potentielle."
+};
+const badgesHTML = (list)=> `<div class="badges">` + list.map(x=>`<span class="badge ${x.c}" title="${x.k}">${x.k}</span>`).join('') + `</div>`;
+
+/* ==== Data loader (defensive) ==== */
+async function loadData(){
+  try{
+    const res = await fetch('data.json?ts=' + Date.now(), { cache:'no-store' });
+    if(!res.ok){
+      debug(`HTTP ${res.status} ${res.statusText} en chargeant data.json`);
+      lastupdate.textContent = 'Erreur: data.json introuvable';
+      renderTable([]); renderCards([]); 
+      return;
+    }
+    const raw = await res.text();
+    let json;
+    try{
+      json = JSON.parse(raw);
+    }catch(e){
+      debug('JSON parse error: ' + e.message + '\n---\n' + raw.slice(0,300) + (raw.length>300?'…':''));
+      lastupdate.textContent = 'Erreur: data.json illisible';
+      renderTable([]); renderCards([]);
+      return;
+    }
+    if(!json || !Array.isArray(json.tokens)){
+      debug('Format inattendu: pas de propriété "tokens"');
+      lastupdate.textContent = 'Erreur: format data.json';
+      renderTable([]); renderCards([]);
+      return;
+    }
+    tokensData = json.tokens;
+    lastupdate.textContent = 'Dernière MàJ : ' + (json.updated_at || '—');
+    renderTable(tokensData);
+    renderCards(tokensData);
+  }catch(e){
+    debug('loadData() failed: '+ (e.message||e));
+    lastupdate.textContent = 'Erreur de chargement';
+    renderTable([]); renderCards([]);
+  }
+}
+
+/* ==== Table ==== */
+function renderTable(list){
+  tbody.innerHTML=''; rows.length=0;
+  if(!list || !list.length){ emptyMsg.style.display='block'; return; }
+  emptyMsg.style.display='none';
+  list.forEach(t=> addRow(t));
+  applyThresholds();
+}
+function addRow(t){
+  const tr=document.createElement('tr');
+
+  tr.dataset.symbol = t.symbol || '';
+  tr.dataset.venue = t.venue || '';
+  tr.dataset.price = (t.price!=null ? '$'+nf2.format(+t.price) : '—');
+  tr.dataset.mc = money(t.mc);
+  tr.dataset.fdv = t.fdv!=null ? money(t.fdv) : '—';
+  tr.dataset.ath = (t.ath!=null?('$'+nf2.format(+t.ath)):'—');
+  tr.dataset.athmc = t.ath_mc!=null ? money(t.ath_mc) : '—';
+  tr.dataset.xathmc = (t.x_ath_mc!=null ? t.x_ath_mc : '');
+  tr.dataset.pricetarget = (t.price_target_ath_mc!=null ? '$'+nf2.format(+t.price_target_ath_mc) : '—');
+  tr.dataset.volmc = (t.vol_mc_24!=null ? t.vol_mc_24 : '');
+  tr.dataset.vol7tvl = (t.vol7_tvl!=null ? t.vol7_tvl : '');
+  tr.dataset.varv = (t.var_vol_7_over_30!=null ? t.var_vol_7_over_30 : '');
+  tr.dataset.rsid = (t.rsi_d!=null ? t.rsi_d : '');
+  tr.dataset.rsih4= (t.rsi_h4!=null ? t.rsi_h4 : '');
+  tr.dataset.tvl = (t.tvl!=null ? t.tvl : '');
+  tr.dataset.mctvl = (t.mc_tvl!=null ? t.mc_tvl : '');
+  tr.dataset.alert = t.alert_date || '—';
+  tr.dataset.tvlsrc = t.tvl_source || '';
+  tr.dataset.narr = t.narrative || '—';
+  tr.dataset.launch = t.launch_date || '—';
+  tr.dataset.twf = t.twitter_followers || '';
+  tr.dataset.site = t.website || '';
+  tr.dataset.tw = t.twitter || '';
+  tr.dataset.gh = t.github || '';
+  tr.dataset.wp = t.whitepaper || '';
+
+  tr.innerHTML = `
+    <td><div class="token"><div class="logo"></div><div><span class="sym">${t.symbol||''}</span><span class="muted"> · ${t.venue||''}</span></div></div></td>
+    <td class="num">${t.alert_date || '—'}</td>
+    <td class="num">${t.price!=null ? '$'+nf2.format(+t.price) : '—'}</td>
+    <td class="num">${fmtPct0(t.d24)}</td>
+    <td class="num col-optional">${fmtPct0(t.d7)}</td>
+    <td class="num col-optional">${fmtPct0(t.d30)}</td>
+    <td class="num">${money(t.mc)}</td>
+    <td class="num">${t.tvl!=null ? money(t.tvl) : 'N/D'}</td>
+    <td class="num">${t.mc_tvl!=null ? fmtNum2(t.mc_tvl) : '—'}</td>
+    <td class="num col-optional">${fmtPct(t.vol_mc_24)}</td>
+    <td class="num col-optional">${fmtPct(t.vol7_tvl)}</td>
+    <td class="num col-optional">${t.var_vol_7_over_30!=null ? nf2.format(+t.var_vol_7_over_30)+'×' : '—'}</td>
+    <td class="num">${t.rsi_d!=null ? nf2.format(+t.rsi_d) : '—'}</td>
+    <td class="num col-optional">${t.rsi_h4!=null ? nf2.format(+t.rsi_h4) : '—'}</td>
+    <td class="num col-optional">${t.ath!=null ? '$'+nf2.format(+t.ath) : '—'}</td>
+    <td class="num">${t.x_ath_mc!=null ? 'x'+nf1.format(+t.x_ath_mc) : '—'}</td>`;
+
+  tr.addEventListener('click', ()=>{ selectRow(tr, true); });
+  tr.addEventListener('mouseenter', ()=>{ if(!pinned) selectRow(tr, false); });
+
+  tbody.appendChild(tr);
+  rows.push(tr);
+}
+function applyThresholds(){
+  rows.forEach(r=>{
+    const mctvl = parseFloat(r.dataset.mctvl);
+    const volmc = parseFloat(r.dataset.volmc);
+    const rsiD  = parseFloat(r.dataset.rsid);
+    const rsiH4 = parseFloat(r.dataset.rsih4);
+
+    const mcTvlCell = r.children[8];
+    if(mcTvlCell && !isNaN(mctvl)){
+      if(mctvl <= 3) mcTvlCell.classList.add('t-good');
+      else if(mctvl <= 8) mcTvlCell.classList.add('t-warn');
+      else mcTvlCell.classList.add('t-bad');
+    }
+    const volCell = r.children[9];
+    if(volCell && !isNaN(volmc)){
+      if(volmc >= 5) volCell.classList.add('t-good');
+      else if(volmc >= 2) volCell.classList.add('t-warn');
+      else volCell.classList.add('t-bad');
+    }
+    const rsiDCell = r.children[12];
+    if(rsiDCell && !isNaN(rsiD)){
+      if(rsiD >= 70) rsiDCell.classList.add('t-bad');
+      else if(rsiD >= 45 && rsiD <= 60) rsiDCell.classList.add('t-good');
+      else rsiDCell.classList.add('t-warn');
+    }
+    const rsiH4Cell = r.children[13];
+    if(rsiH4Cell && !isNaN(rsiH4)){
+      if(rsiH4 >= 70) rsiH4Cell.classList.add('t-bad');
+      else if(rsiH4 >= 45 && rsiH4 <= 60) rsiH4Cell.classList.add('t-good');
+      else rsiH4Cell.classList.add('t-warn');
+    }
+  });
+}
+
+/* ==== Drawer ==== */
+function selectRow(tr, openDrawerIfClosed){
+  rows.forEach(r => r.classList.toggle('selected', r===tr));
+  renderDetails(tr);
+  if(openDrawerIfClosed){ openDrawer(); }
+}
+function renderDetails(r){
+  dTitle.textContent = `${r.dataset.symbol} · ${r.dataset.venue}`;
+  const tvl = r.dataset.tvl ? money(+r.dataset.tvl) : 'N/D';
+  const mctvl = r.dataset.mctvl ? fmtNum2(+r.dataset.mctvl) : '—';
+
+  dMarket.innerHTML = `
+    <div class="k">Date</div><div class="num">${r.dataset.alert||'—'}</div>
+    <div class="k">Prix</div><div class="num">${r.dataset.price||'—'}</div>
+    <div class="k">Market Cap</div><div class="num">${r.dataset.mc||'—'}</div>
+    <div class="k">TVL</div><div class="num">${tvl}</div>
+    <div class="k">MC/TVL</div><div class="num">${mctvl}</div>
+    <div class="k">ATH (prix)</div><div class="num">${r.dataset.ath||'—'}</div>
+    <div class="k">ATH Mcap</div><div class="num">${r.dataset.athmc||'—'}</div>
+    <div class="k">x ATH Mcap</div><div class="num">${r.dataset.xathmc? 'x'+nf1.format(+r.dataset.xathmc):'—'}</div>
+    <div class="k">Prix cible (ATH Mcap)</div><div class="num">${r.dataset.pricetarget||'—'}</div>
+    <div class="k">Vol/MC (24h)</div><div class="num">${(isNaN(parseFloat(r.dataset.volmc))?'—':(nf2.format(parseFloat(r.dataset.volmc))+'%'))}</div>
+    <div class="k">Moy Vol7j/TVL</div><div class="num">${(isNaN(parseFloat(r.dataset.vol7tvl))?'—':(nf2.format(parseFloat(r.dataset.vol7tvl))+'%'))}</div>
+    <div class="k">Var Vol 7j/30j</div><div class="num">${r.dataset.varv? nf2.format(+r.dataset.varv)+'×':'—'}</div>
+    <div class="k">RSI Daily (14)</div><div class="num">${r.dataset.rsid? nf2.format(+r.dataset.rsid):'—'}</div>
+    <div class="k">RSI H4 (14)</div><div class="num">${r.dataset.rsih4? nf2.format(+r.dataset.rsih4):'—'}</div>
+    <div class="k">Source TVL</div><div class="num">${r.dataset.tvlsrc||'—'}</div>`;
+
+  const t = {
+    tvl: (r.dataset.tvl? +r.dataset.tvl : null),
+    mc_tvl: (r.dataset.mctvl? +r.dataset.mctvl : null),
+    var_vol_7_over_30: (r.dataset.varv? +r.dataset.varv : null),
+    vol_mc_24: (r.dataset.volmc? +r.dataset.volmc : null),
+    x_ath_mc: (r.dataset.xathmc? +r.dataset.xathmc : null),
+    rsi_d: (r.dataset.rsid? +r.dataset.rsid : null)
+  };
+  dSignals.innerHTML = badgesHTML(buildSignals(t));
+}
+function openDrawer(){ if(!drawerOpen){ drawer.classList.add('open'); backdrop.classList.add('show'); drawerOpen = true; } }
+function closeDrawer(){ if(drawerOpen){ drawer.classList.remove('open'); backdrop.classList.remove('show'); drawerOpen = false; } }
+openBtn.addEventListener('click', ()=>{ drawerOpen ? closeDrawer() : openDrawer(); });
+closeBtn.addEventListener('click', closeDrawer);
+backdrop.addEventListener('click', ()=>{ if(!pinned) closeDrawer(); });
+pinBtn.addEventListener('click', ()=>{ pinned = !pinned; pinBtn.textContent = pinned ? '📌 Épinglé' : '📌 Épingler'; });
+
+/* ==== Cards (détaillées) ==== */
+function renderCards(list){
+  if(!cardsToggle.checked){ cardsWrap.classList.remove('show'); cardsGrid.innerHTML=''; return; }
+  cardsWrap.classList.add('show');
+  cardsGrid.innerHTML = '';
+  (list||[]).forEach(t=>{
+    const sigs = buildSignals(t);
+    const head = `
+      <div class="sig-head">
+        <div>
+          <div class="sig-title">${t.symbol || ''}</div>
+          <div class="sig-sub">${t.alert_date || '—'} · ${t.venue||''}</div>
+        </div>
+        <div class="sig-price">${t.price!=null ? '$'+nf2.format(+t.price) : '—'}</div>
+      </div>`;
+    const sub = `<div class="sig-sub">MC ${money(t.mc)} · TVL ${t.tvl!=null?money(t.tvl):'N/D'}</div>`;
+    const chips = `
+      <div class="sig-metrics">
+        <span class="chip">MC/TVL ${t.mc_tvl!=null?fmtNum2(t.mc_tvl):'—'}</span>
+        <span class="chip">RSI D ${t.rsi_d!=null?nf2.format(+t.rsi_d):'—'}</span>
+        <span class="chip">x ATH Mcap ${t.x_ath_mc!=null?('x'+nf1.format(+t.x_ath_mc)):'—'}</span>
+        <span class="chip">Vol/MC 24h ${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</span>
+      </div>`;
+    const badges = badgesHTML(sigs);
+    const explain = (sigs.length
+      ? sigs.map(s=>`<li><span class="badge ${s.c}">${s.k}</span><p>${(SIGNAL_EXPLAIN[s.key]||'')}</p></li>`).join('')
+      : '<li><p>Aucun signal spécifique.</p></li>');
+
+    const div = document.createElement('div');
+    div.className = 'sig-card';
+    const symId = `exp-${(t.symbol||'').replace(/[^a-z0-9]/gi,'')}`;
+    div.innerHTML = `
+      ${head}
+      <div class="sig-section">${sub}${chips}</div>
+      <div class="sig-section">${badges}</div>
+      <hr class="sig-divider">
+      <div class="sig-actions">
+        <div class="linkbar">
+          ${t.website?`<a href="${t.website}" target="_blank">Site</a>`:''}
+          ${t.whitepaper?`<a href="${t.whitepaper}" target="_blank">WP</a>`:''}
+          ${t.twitter?`<a href="${t.twitter}" target="_blank">Twitter</a>`:''}
+          ${t.github?`<a href="${t.github}" target="_blank">GitHub</a>`:''}
+        </div>
+        <div>
+          <button class="btn-ghost" data-sym="${t.symbol||''}" data-open="drawer">Détails</button>
+          <button class="btn-ghost" data-target="#${symId}" data-toggle="exp">+ D’infos</button>
+        </div>
+      </div>
+      <div id="${symId}" style="display:none;">
+        <ul class="sig-explain">${explain}</ul>
+        <div class="sig-sub" style="margin-top:8px;">Source TVL: ${t.tvl_source || '—'}</div>
+      </div>
+    `;
+    div.querySelector('[data-open="drawer"]').addEventListener('click', ()=>{
+      const tr = Array.from(rows).find(r => r.dataset.symbol === (t.symbol||''));
+      if(tr){ selectRow(tr, true); window.scrollTo({ top:0, behavior:'smooth' }); }
+    });
+    div.querySelector('[data-toggle="exp"]').addEventListener('click', (ev)=>{
+      const tgt = div.querySelector(ev.currentTarget.getAttribute('data-target'));
+      const open = tgt.style.display !== 'none';
+      tgt.style.display = open ? 'none' : 'block';
+      ev.currentTarget.textContent = open ? '+ D’infos' : '− Masquer';
+    });
+    cardsGrid.appendChild(div);
+  });
+}
+cardsToggle.addEventListener('change', ()=> renderCards(tokensData));
+
+/* ==== Search & Refresh ==== */
+searchInput.addEventListener('input', (e)=>{
+  const q = e.target.value.trim().toLowerCase();
+  rows.forEach(r=>{ r.style.display = r.innerText.toLowerCase().includes(q)? '' : 'none'; });
+});
+btnRefresh.addEventListener('click', loadData);
+function startAuto(){ stopAuto(); autoTimer=setInterval(loadData, 60_000); }
+function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } }
+autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
+if(autoToggle.checked) startAuto();
+autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
+
+/* ==== Drawer resize ==== */
+let drag=false, startX=0, startW=0;
+function setDrawerWidth(px){
+  const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-min'))||300;
+  const max = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-max'))||640;
+  const w = Math.max(min, Math.min(max, Math.min(px, window.innerWidth-240)));
+  document.documentElement.style.setProperty('--drawer-w', w+'px');
+  localStorage.setItem('drawerW', String(w));
+}
+resizer.addEventListener('mousedown', (e)=>{
+  if(window.matchMedia('(max-width:980px)').matches) return;
+  e.preventDefault(); drag=true; document.body.classList.add('resizing');
+  startX=e.clientX; startW=drawer.getBoundingClientRect().width;
+  window.addEventListener('mousemove', onDrag);
+  window.addEventListener('mouseup', onStopDrag);
+});
+function onDrag(e){ if(!drag) return; const dx = startX - e.clientX; setDrawerWidth(startW + dx); }
+function onStopDrag(){ if(!drag) return; drag=false; document.body.classList.remove('resizing');
+  window.removeEventListener('mousemove', onDrag); window.removeEventListener('mouseup', onStopDrag); }
+const savedW = parseInt(localStorage.getItem('drawerW'),10);
+if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
+
+/* ==== Init ==== */
+document.addEventListener('DOMContentLoaded', ()=>{
+  if(cardsToggle.checked){ cardsWrap.classList.add('show'); }
+  loadData();
+});
 </script>
 </body>
 </html>
