@@ -1,5 +1,5 @@
 {
-  "updated_at": "2025-08-28T08:25:16.135Z",
+  "updated_at": "2025-08-28T08:48:55.344Z",
   "tokens": [
     {
       "symbol": "CRO",
@@ -19,7 +19,7 @@
       "vol30_avg": null,
       "vol7_tvl": null,
       "var_vol_7_over_30": null,
-      "rsi_d": 90.332848,
+      "rsi_d": null,
       "rsi_h4": null,
       "ath": null,
       "ath_date": null,
@@ -265,7 +265,7 @@
       "github": null,
       "whitepaper": null,
       "tvl_source": "protocol:sparklend",
-      "_cg_id": null
+      "_cg_id": "spark-2"
     },
     {
       "symbol": "DIA",
@@ -303,7 +303,7 @@
       "github": null,
       "whitepaper": null,
       "tvl_source": "protocol:diamond-coin",
-      "_cg_id": null
+      "_cg_id": "dia-data"
     },
     {
       "symbol": "SUI",
