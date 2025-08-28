@@ -21,7 +21,7 @@ jobs:
         run: npm install csv-parse@5
 
       - name: Run fetch_and_build
-        run: node scripts/fetch_and_build.js
+        run: node fetch_and_build.js
 
       - name: Commit & push data.json
         run: |
