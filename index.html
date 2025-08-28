@@ -156,33 +156,23 @@
 </aside>
 
 <script>
-/* ===== Debug helpers ===== */
 const debugBox = document.getElementById('debug');
-function debug(msg){
-  try{
-    debugBox.classList.add('show');
-    debugBox.textContent += (debugBox.textContent ? '\n' : '') + msg;
-    console.error(msg);
-  }catch(_){}
-}
-window.addEventListener('error', (e)=> debug('JS Error: '+ (e.error?.message || e.message)));
-window.addEventListener('unhandledrejection', (e)=> debug('Promise Rejection: '+ (e.reason?.message || e.reason)));
+function debug(msg){ try{ debugBox.classList.add('show'); debugBox.textContent += (debugBox.textContent? '\\n':'') + msg; console.error(msg);}catch(_){} }
+window.addEventListener('error', e=> debug('JS Error: '+(e.error?.message||e.message)));
+window.addEventListener('unhandledrejection', e=> debug('Promise Rejection: '+(e.reason?.message||e.reason)));
 
-/* ==== Formatters ==== */
-const nf2 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
-const nf1 = new Intl.NumberFormat('en-US', { maximumFractionDigits: 1 });
+const nf2 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 2 });
+const nf1 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 1 });
 const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
-  Math.abs(n) >= 1e12 ? nf2.format(n/1e12)+'T' :
-  Math.abs(n) >= 1e9  ? nf2.format(n/1e9)+'B'  :
-  Math.abs(n) >= 1e6  ? nf2.format(n/1e6)+'M'  :
-  Math.abs(n) >= 1e3  ? nf2.format(n/1e3)+'K'  :
-  nf2.format(n)
+  Math.abs(n)>=1e12? nf2.format(n/1e12)+'T' :
+  Math.abs(n)>=1e9 ? nf2.format(n/1e9)+'B' :
+  Math.abs(n)>=1e6 ? nf2.format(n/1e6)+'M' :
+  Math.abs(n)>=1e3 ? nf2.format(n/1e3)+'K' : nf2.format(n)
 );
 const fmtPct0 = n => (n==null||isNaN(n)) ? '—' : `${Math.round(+n)}%`;
 const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
 const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
 
-/* ==== Elements & State ==== */
 const tbody = document.querySelector('#screener tbody');
 const emptyMsg = document.getElementById('emptyMsg');
 const lastupdate = document.getElementById('lastupdate');
@@ -212,9 +202,8 @@ let pinned = false;
 let drawerOpen = false;
 let autoTimer=null;
 
-/* ==== Signals & explanations ==== */
 function buildSignals(t){
-  const s = [];
+  const s=[];
   if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1, key:'tvl_nd'});
   if(t.mc_tvl != null && t.mc_tvl <= 3) s.push({k:'💎 MC/TVL≤3', c:'b-good', pri:3, key:'mctvl_low'});
   if(t.mc_tvl != null && t.mc_tvl > 12) s.push({k:'MC/TVL>12', c:'b-bad', pri:2, key:'mctvl_high'});
@@ -227,58 +216,33 @@ function buildSignals(t){
   if(t.rsi_d != null && t.rsi_d >= 70) s.push({k:'🟥 RSI D≥70', c:'b-bad', pri:8, key:'rsi_overbought'});
   return s.sort((a,b)=>a.pri-b.pri);
 }
-const SIGNAL_EXPLAIN = {
-  tvl_nd: "Pas de TVL fiable trouvée (match auto DeFiLlama) → ratios TVL incomplets.",
-  mctvl_low: "Capitalisation proche de l’activité on-chain (moins de prime spéculative).",
-  mctvl_high:"Capitalisation tendue vs TVL → prudence (surévaluation potentielle).",
-  mom_vol: "Momentum : le volume moyen 7j dépasse nettement le 30j.",
-  liq_good:"Liquidité saine : volume/MC sur 24h ≥ 5% (slippage réduit).",
-  liq_low: "Faible liquidité : volume/MC sur 24h < 1% (slippage/mèches possibles).",
-  upside:  "Potentiel si retour à l’ATH de market cap (neutralise la dilution).",
-  near_ath:"Proche des sommets historiques de market cap (peu d’upside).",
-  rsi_oversold:"RSI Daily en zone de survente potentielle.",
-  rsi_overbought:"RSI Daily en zone de surachat potentielle."
+const SIGNAL_EXPLAIN={
+  tvl_nd:"Pas de TVL fiable trouvée (match auto DeFiLlama).",
+  mctvl_low:"Capitalisation proche de l’activité on-chain.",
+  mctvl_high:"Capitalisation tendue vs TVL → prudence.",
+  mom_vol:"Momentum : le volume moyen 7j dépasse le 30j.",
+  liq_good:"Liquidité saine : volume/MC 24h ≥ 5%.",
+  liq_low:"Faible liquidité : volume/MC 24h < 1%.",
+  upside:"Potentiel si retour à l’ATH de market cap.",
+  near_ath:"Proche des sommets historiques de market cap.",
+  rsi_oversold:"RSI Daily en zone de survente.",
+  rsi_overbought:"RSI Daily en zone de surachat."
 };
-const badgesHTML = (list)=> `<div class="badges">` + list.map(x=>`<span class="badge ${x.c}" title="${x.k}">${x.k}</span>`).join('') + `</div>`;
+const badgesHTML = list => `<div class="badges">` + list.map(x=>`<span class="badge ${x.c}" title="${x.k}">${x.k}</span>`).join('') + `</div>`;
 
-/* ==== Data loader (defensive) ==== */
 async function loadData(){
   try{
-    const res = await fetch('data.json?ts=' + Date.now(), { cache:'no-store' });
-    if(!res.ok){
-      debug(`HTTP ${res.status} ${res.statusText} en chargeant data.json`);
-      lastupdate.textContent = 'Erreur: data.json introuvable';
-      renderTable([]); renderCards([]); 
-      return;
-    }
-    const raw = await res.text();
-    let json;
-    try{
-      json = JSON.parse(raw);
-    }catch(e){
-      debug('JSON parse error: ' + e.message + '\n---\n' + raw.slice(0,300) + (raw.length>300?'…':''));
-      lastupdate.textContent = 'Erreur: data.json illisible';
-      renderTable([]); renderCards([]);
-      return;
-    }
-    if(!json || !Array.isArray(json.tokens)){
-      debug('Format inattendu: pas de propriété "tokens"');
-      lastupdate.textContent = 'Erreur: format data.json';
-      renderTable([]); renderCards([]);
-      return;
-    }
+    const res = await fetch('data.json?ts='+Date.now(), { cache:'no-store' });
+    if(!res.ok){ debug('HTTP '+res.status+' '+res.statusText+' en chargeant data.json'); renderTable([]); renderCards([]); lastupdate.textContent='Erreur: data.json'; return; }
+    const json = await res.json();
+    if(!json || !Array.isArray(json.tokens)){ debug('Format inattendu'); renderTable([]); renderCards([]); lastupdate.textContent='Erreur: format'; return; }
     tokensData = json.tokens;
     lastupdate.textContent = 'Dernière MàJ : ' + (json.updated_at || '—');
     renderTable(tokensData);
     renderCards(tokensData);
-  }catch(e){
-    debug('loadData() failed: '+ (e.message||e));
-    lastupdate.textContent = 'Erreur de chargement';
-    renderTable([]); renderCards([]);
-  }
+  }catch(e){ debug('loadData() failed: '+(e.message||e)); renderTable([]); renderCards([]); lastupdate.textContent='Erreur de chargement'; }
 }
 
-/* ==== Table ==== */
 function renderTable(list){
   tbody.innerHTML=''; rows.length=0;
   if(!list || !list.length){ emptyMsg.style.display='block'; return; }
@@ -288,7 +252,6 @@ function renderTable(list){
 }
 function addRow(t){
   const tr=document.createElement('tr');
-
   tr.dataset.symbol = t.symbol || '';
   tr.dataset.venue = t.venue || '';
   tr.dataset.price = (t.price!=null ? '$'+nf2.format(+t.price) : '—');
@@ -307,13 +270,6 @@ function addRow(t){
   tr.dataset.mctvl = (t.mc_tvl!=null ? t.mc_tvl : '');
   tr.dataset.alert = t.alert_date || '—';
   tr.dataset.tvlsrc = t.tvl_source || '';
-  tr.dataset.narr = t.narrative || '—';
-  tr.dataset.launch = t.launch_date || '—';
-  tr.dataset.twf = t.twitter_followers || '';
-  tr.dataset.site = t.website || '';
-  tr.dataset.tw = t.twitter || '';
-  tr.dataset.gh = t.github || '';
-  tr.dataset.wp = t.whitepaper || '';
 
   tr.innerHTML = `
     <td><div class="token"><div class="logo"></div><div><span class="sym">${t.symbol||''}</span><span class="muted"> · ${t.venue||''}</span></div></div></td>
@@ -332,10 +288,8 @@ function addRow(t){
     <td class="num col-optional">${t.rsi_h4!=null ? nf2.format(+t.rsi_h4) : '—'}</td>
     <td class="num col-optional">${t.ath!=null ? '$'+nf2.format(+t.ath) : '—'}</td>
     <td class="num">${t.x_ath_mc!=null ? 'x'+nf1.format(+t.x_ath_mc) : '—'}</td>`;
-
   tr.addEventListener('click', ()=>{ selectRow(tr, true); });
   tr.addEventListener('mouseenter', ()=>{ if(!pinned) selectRow(tr, false); });
-
   tbody.appendChild(tr);
   rows.push(tr);
 }
@@ -373,7 +327,6 @@ function applyThresholds(){
   });
 }
 
-/* ==== Drawer ==== */
 function selectRow(tr, openDrawerIfClosed){
   rows.forEach(r => r.classList.toggle('selected', r===tr));
   renderDetails(tr);
@@ -400,7 +353,6 @@ function renderDetails(r){
     <div class="k">RSI Daily (14)</div><div class="num">${r.dataset.rsid? nf2.format(+r.dataset.rsid):'—'}</div>
     <div class="k">RSI H4 (14)</div><div class="num">${r.dataset.rsih4? nf2.format(+r.dataset.rsih4):'—'}</div>
     <div class="k">Source TVL</div><div class="num">${r.dataset.tvlsrc||'—'}</div>`;
-
   const t = {
     tvl: (r.dataset.tvl? +r.dataset.tvl : null),
     mc_tvl: (r.dataset.mctvl? +r.dataset.mctvl : null),
@@ -418,75 +370,45 @@ closeBtn.addEventListener('click', closeDrawer);
 backdrop.addEventListener('click', ()=>{ if(!pinned) closeDrawer(); });
 pinBtn.addEventListener('click', ()=>{ pinned = !pinned; pinBtn.textContent = pinned ? '📌 Épinglé' : '📌 Épingler'; });
 
-/* ==== Cards (détaillées) ==== */
 function renderCards(list){
   if(!cardsToggle.checked){ cardsWrap.classList.remove('show'); cardsGrid.innerHTML=''; return; }
   cardsWrap.classList.add('show');
-  cardsGrid.innerHTML = '';
+  cardsGrid.innerHTML='';
   (list||[]).forEach(t=>{
     const sigs = buildSignals(t);
-    const head = `
+    const div = document.createElement('div');
+    const symId = `exp-${(t.symbol||'').replace(/[^a-z0-9]/gi,'')}`;
+    div.className='sig-card';
+    div.innerHTML=`
       <div class="sig-head">
-        <div>
-          <div class="sig-title">${t.symbol || ''}</div>
-          <div class="sig-sub">${t.alert_date || '—'} · ${t.venue||''}</div>
-        </div>
+        <div><div class="sig-title">${t.symbol||''}</div><div class="sig-sub">${t.alert_date||'—'} · ${t.venue||''}</div></div>
         <div class="sig-price">${t.price!=null ? '$'+nf2.format(+t.price) : '—'}</div>
-      </div>`;
-    const sub = `<div class="sig-sub">MC ${money(t.mc)} · TVL ${t.tvl!=null?money(t.tvl):'N/D'}</div>`;
-    const chips = `
+      </div>
+      <div class="sig-sub">MC ${money(t.mc)} · TVL ${t.tvl!=null?money(t.tvl):'N/D'}</div>
       <div class="sig-metrics">
         <span class="chip">MC/TVL ${t.mc_tvl!=null?fmtNum2(t.mc_tvl):'—'}</span>
         <span class="chip">RSI D ${t.rsi_d!=null?nf2.format(+t.rsi_d):'—'}</span>
         <span class="chip">x ATH Mcap ${t.x_ath_mc!=null?('x'+nf1.format(+t.x_ath_mc)):'—'}</span>
         <span class="chip">Vol/MC 24h ${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</span>
-      </div>`;
-    const badges = badgesHTML(sigs);
-    const explain = (sigs.length
-      ? sigs.map(s=>`<li><span class="badge ${s.c}">${s.k}</span><p>${(SIGNAL_EXPLAIN[s.key]||'')}</p></li>`).join('')
-      : '<li><p>Aucun signal spécifique.</p></li>');
-
-    const div = document.createElement('div');
-    div.className = 'sig-card';
-    const symId = `exp-${(t.symbol||'').replace(/[^a-z0-9]/gi,'')}`;
-    div.innerHTML = `
-      ${head}
-      <div class="sig-section">${sub}${chips}</div>
-      <div class="sig-section">${badges}</div>
+      </div>
+      ${ (sigs.length? '<div class="badges">'+sigs.map(x=>`<span class="badge ${x.c}">${x.k}</span>`).join('')+'</div>' : '') }
       <hr class="sig-divider">
       <div class="sig-actions">
-        <div class="linkbar">
-          ${t.website?`<a href="${t.website}" target="_blank">Site</a>`:''}
-          ${t.whitepaper?`<a href="${t.whitepaper}" target="_blank">WP</a>`:''}
-          ${t.twitter?`<a href="${t.twitter}" target="_blank">Twitter</a>`:''}
-          ${t.github?`<a href="${t.github}" target="_blank">GitHub</a>`:''}
-        </div>
+        <div></div>
         <div>
           <button class="btn-ghost" data-sym="${t.symbol||''}" data-open="drawer">Détails</button>
-          <button class="btn-ghost" data-target="#${symId}" data-toggle="exp">+ D’infos</button>
         </div>
-      </div>
-      <div id="${symId}" style="display:none;">
-        <ul class="sig-explain">${explain}</ul>
-        <div class="sig-sub" style="margin-top:8px;">Source TVL: ${t.tvl_source || '—'}</div>
       </div>
     `;
     div.querySelector('[data-open="drawer"]').addEventListener('click', ()=>{
       const tr = Array.from(rows).find(r => r.dataset.symbol === (t.symbol||''));
       if(tr){ selectRow(tr, true); window.scrollTo({ top:0, behavior:'smooth' }); }
     });
-    div.querySelector('[data-toggle="exp"]').addEventListener('click', (ev)=>{
-      const tgt = div.querySelector(ev.currentTarget.getAttribute('data-target'));
-      const open = tgt.style.display !== 'none';
-      tgt.style.display = open ? 'none' : 'block';
-      ev.currentTarget.textContent = open ? '+ D’infos' : '− Masquer';
-    });
     cardsGrid.appendChild(div);
   });
 }
 cardsToggle.addEventListener('change', ()=> renderCards(tokensData));
 
-/* ==== Search & Refresh ==== */
 searchInput.addEventListener('input', (e)=>{
   const q = e.target.value.trim().toLowerCase();
   rows.forEach(r=>{ r.style.display = r.innerText.toLowerCase().includes(q)? '' : 'none'; });
@@ -498,7 +420,6 @@ autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
 if(autoToggle.checked) startAuto();
 autoToggle.addEventListener('change', ()=>{ if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); } else { stopAuto(); localStorage.setItem('autoRefresh','0'); } });
 
-/* ==== Drawer resize ==== */
 let drag=false, startX=0, startW=0;
 function setDrawerWidth(px){
   const min = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--drawer-min'))||300;
@@ -507,6 +428,7 @@ function setDrawerWidth(px){
   document.documentElement.style.setProperty('--drawer-w', w+'px');
   localStorage.setItem('drawerW', String(w));
 }
+const resizer = document.getElementById('drawerResizer');
 resizer.addEventListener('mousedown', (e)=>{
   if(window.matchMedia('(max-width:980px)').matches) return;
   e.preventDefault(); drag=true; document.body.classList.add('resizing');
@@ -520,7 +442,6 @@ function onStopDrag(){ if(!drag) return; drag=false; document.body.classList.rem
 const savedW = parseInt(localStorage.getItem('drawerW'),10);
 if(!isNaN(savedW)) document.documentElement.style.setProperty('--drawer-w', savedW+'px');
 
-/* ==== Init ==== */
 document.addEventListener('DOMContentLoaded', ()=>{
   if(cardsToggle.checked){ cardsWrap.classList.add('show'); }
   loadData();
