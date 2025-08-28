@@ -10,7 +10,6 @@
     --green:#28d39b;--red:#ff6b6b;--amber:#ffc857;--blue:#8bb7ff;--outline:#1c2742;
     --chip:#0d1a2a; --chip-bd:#223052;
     --radius:14px; --gap:14px;
-    --drawer-w:420px; --drawer-min:300px; --drawer-max:640px;
   }
   *{box-sizing:border-box}
   body{margin:0;background:linear-gradient(180deg,#0a0f19,#0b1016);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
@@ -26,7 +25,7 @@
 
   .card{background:var(--panel);border:1px solid var(--outline);border-radius:var(--radius);overflow:hidden}
   .table-scroller{width:100%;overflow:auto}
-  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1180px;}
+  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1280px;}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));
     color:#cfe0ff;text-align:left;font-weight:700;font-size:12px;text-transform:uppercase;
     letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 12px}
@@ -64,9 +63,6 @@
   .sig-sub{ color:var(--muted); font-size:12px; }
   .sig-metrics{ display:flex; gap:8px; flex-wrap:wrap; }
   .sig-divider{ border:0; border-top:1px solid var(--outline); margin:8px 0; opacity:.7 }
-  .sig-actions{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
-  .linkbar a{ color:#9ec5ff; text-decoration:none; margin-right:10px; font-size:12px; }
-  .btn-ghost{ background:transparent; border:1px solid var(--outline); color:#cfe0ff; border-radius:10px; padding:6px 10px; cursor:pointer; font-size:12px; }
 </style>
 </head>
 <body>
@@ -112,13 +108,11 @@
 </div>
 
 <script>
-/* ===== Helpers ===== */
 const debugBox = document.getElementById('debug');
 function debug(msg){ try{ debugBox.classList.add('show'); debugBox.textContent += (debugBox.textContent? '\\n':'') + msg; console.error(msg);}catch(_){} }
 window.addEventListener('error', e=> debug('JS Error: '+(e.error?.message||e.message)));
 window.addEventListener('unhandledrejection', e=> debug('Promise Rejection: '+(e.reason?.message||e.reason)));
 
-const nf0 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 2 });
 const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
@@ -131,22 +125,17 @@ const fmtPct0 = n => (n==null||isNaN(n)) ? '—' : `${Math.round(+n)}%`;
 const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
 const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
 
-/* ===== DOM ===== */
 const tbody = document.querySelector('#screener tbody');
 const emptyMsg = document.getElementById('emptyMsg');
 const lastupdate = document.getElementById('lastupdate');
 const searchInput = document.getElementById('search');
 const btnRefresh = document.getElementById('btnRefresh');
 const autoToggle = document.getElementById('autoToggle');
-
-const cardsWrap = document.getElementById('cardsWrap');
 const cardsGrid = document.getElementById('cardsGrid');
 
 let allRows = [];
-let masterData = [];
 let autoTimer=null;
 
-/* ===== Signaux ===== */
 function buildSignals(t){
   const s=[];
   if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1});
@@ -162,16 +151,15 @@ function buildSignals(t){
   return s.sort((a,b)=>a.pri-b.pri);
 }
 
-/* ===== Rendu TABLE ===== */
-function render(data){
-  masterData = Array.isArray(data?.tokens) ? data.tokens : [];
-  lastupdate.textContent = 'Dernière MàJ : ' + (data.updated_at || '—');
+function render(json){
+  const data = Array.isArray(json?.tokens) ? json.tokens : [];
+  lastupdate.textContent = 'Dernière MàJ : ' + (json.updated_at || '—');
 
   tbody.innerHTML=''; allRows.length=0;
-  if(!masterData.length){ emptyMsg.style.display='block'; cardsGrid.innerHTML=''; return; }
+  if(!data.length){ emptyMsg.style.display='block'; cardsGrid.innerHTML=''; return; }
   emptyMsg.style.display='none';
 
-  masterData.forEach(t=>{
+  data.forEach(t=>{
     const tr = document.createElement('tr');
 
     const price = (t.price!=null) ? '$'+nf2.format(+t.price) : '—';
@@ -185,7 +173,6 @@ function render(data){
     const vol7  = (t.vol7_avg!=null) ? money(t.vol7_avg) : '—';
     const vol30 = (t.vol30_avg!=null) ? money(t.vol30_avg) : '—';
     const var73 = (t.var_vol_7_over_30!=null) ? nf2.format(+t.var_vol_7_over_30)+'×' : '—';
-    const vol7tvl = (t.vol7_tvl!=null) ? nf2.format(+t.vol7_tvl)+'%' : '—';
     const rsid = (t.rsi_d!=null) ? nf2.format(+t.rsi_d) : '—';
     const rsih4= (t.rsi_h4!=null) ? nf2.format(+t.rsi_h4) : '—';
     const ath  = (t.ath!=null) ? '$'+nf2.format(+t.ath) : '—';
@@ -238,13 +225,9 @@ function render(data){
     allRows.push(tr);
   });
 
-  renderCards(masterData);
-}
-
-/* ===== Cartes / signaux ===== */
-function renderCards(list){
+  // cartes
   cardsGrid.innerHTML='';
-  (list||[]).forEach(t=>{
+  data.forEach(t=>{
     const sigs = buildSignals(t);
     const div = document.createElement('div');
     div.className='sig-card';
@@ -270,32 +253,20 @@ function renderCards(list){
   });
 }
 
-/* ===== Chargement ===== */
 async function loadData(){
   try{
     const res = await fetch('data.json?ts='+Date.now(), { cache:'no-store' });
-    if(!res.ok){
-      debug(`HTTP ${res.status} ${res.statusText} sur data.json`);
-      lastupdate.textContent = 'Erreur: data.json introuvable';
-      render({ tokens: [] });
-      return;
-    }
+    if(!res.ok){ debug(`HTTP ${res.status} ${res.statusText} sur data.json`); render({ tokens: [] }); lastupdate.textContent = 'Erreur: data.json introuvable'; return; }
     const json = await res.json();
-    if(!json || !Array.isArray(json.tokens)){
-      debug('Format data.json inattendu (pas de tokens[])');
-      render({ tokens: [] });
-      lastupdate.textContent = 'Erreur: format data.json';
-      return;
-    }
+    if(!json || !Array.isArray(json.tokens)){ debug('Format data.json inattendu'); render({ tokens: [] }); lastupdate.textContent='Erreur: format data.json'; return; }
     render(json);
   }catch(e){
     debug('loadData() failed: '+(e.message||e));
-    lastupdate.textContent = 'Erreur de chargement';
     render({ tokens: [] });
+    lastupdate.textContent = 'Erreur de chargement';
   }
 }
 
-/* ===== Recherche & Refresh ===== */
 document.getElementById('search').addEventListener('input', (e)=>{
   const q = e.target.value.trim().toLowerCase();
   document.querySelectorAll('#screener tbody tr').forEach(r=>{
@@ -304,6 +275,7 @@ document.getElementById('search').addEventListener('input', (e)=>{
 });
 document.getElementById('btnRefresh').addEventListener('click', loadData);
 
+let autoTimer=null;
 function startAuto(){ stopAuto(); autoTimer=setInterval(loadData, 60_000); }
 function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } }
 autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
@@ -313,7 +285,6 @@ autoToggle.addEventListener('change', ()=>{
   else { stopAuto(); localStorage.setItem('autoRefresh','0'); }
 });
 
-/* ===== Boot ===== */
 document.addEventListener('DOMContentLoaded', loadData);
 </script>
 </body>
