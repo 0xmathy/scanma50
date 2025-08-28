@@ -108,6 +108,7 @@
 </div>
 
 <script>
+/* ===== Debug helpers ===== */
 const debugBox = document.getElementById('debug');
 function debug(msg){ try{ debugBox.classList.add('show'); debugBox.textContent += (debugBox.textContent? '\\n':'') + msg; console.error(msg);}catch(_){} }
 window.addEventListener('error', e=> debug('JS Error: '+(e.error?.message||e.message)));
@@ -125,6 +126,7 @@ const fmtPct0 = n => (n==null||isNaN(n)) ? '—' : `${Math.round(+n)}%`;
 const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
 const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
 
+/* ===== DOM ===== */
 const tbody = document.querySelector('#screener tbody');
 const emptyMsg = document.getElementById('emptyMsg');
 const lastupdate = document.getElementById('lastupdate');
@@ -134,8 +136,9 @@ const autoToggle = document.getElementById('autoToggle');
 const cardsGrid = document.getElementById('cardsGrid');
 
 let allRows = [];
-let autoTimer=null;
+let autoTimer = null;  /* ✅ Une seule déclaration */
 
+/* ===== Signaux ===== */
 function buildSignals(t){
   const s=[];
   if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1});
@@ -151,6 +154,7 @@ function buildSignals(t){
   return s.sort((a,b)=>a.pri-b.pri);
 }
 
+/* ===== Rendu ===== */
 function render(json){
   const data = Array.isArray(json?.tokens) ? json.tokens : [];
   lastupdate.textContent = 'Dernière MàJ : ' + (json.updated_at || '—');
@@ -247,12 +251,12 @@ function render(json){
         <span class="chip">Vol/MC 24h ${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</span>
         <span class="chip">Vol7/30 ${t.var_vol_7_over_30!=null?nf2.format(+t.var_vol_7_over_30)+'×':'—'}</span>
       </div>
-      ${ (sigs.length? '<div class="badges">'+sigs.map(x=>`<span class="badge ${x.c}">${x.k}</span>`).join('')+'</div>' : '') }
     `;
     cardsGrid.appendChild(div);
   });
 }
 
+/* ===== Charger data.json ===== */
 async function loadData(){
   try{
     const res = await fetch('data.json?ts='+Date.now(), { cache:'no-store' });
@@ -267,6 +271,7 @@ async function loadData(){
   }
 }
 
+/* ===== Recherche & Refresh & Auto ===== */
 document.getElementById('search').addEventListener('input', (e)=>{
   const q = e.target.value.trim().toLowerCase();
   document.querySelectorAll('#screener tbody tr').forEach(r=>{
@@ -275,7 +280,6 @@ document.getElementById('search').addEventListener('input', (e)=>{
 });
 document.getElementById('btnRefresh').addEventListener('click', loadData);
 
-let autoTimer=null;
 function startAuto(){ stopAuto(); autoTimer=setInterval(loadData, 60_000); }
 function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } }
 autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
@@ -285,6 +289,7 @@ autoToggle.addEventListener('change', ()=>{
   else { stopAuto(); localStorage.setItem('autoRefresh','0'); }
 });
 
+/* ===== Boot ===== */
 document.addEventListener('DOMContentLoaded', loadData);
 </script>
 </body>
