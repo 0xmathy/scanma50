@@ -3,12 +3,14 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Scan MA50 v1.2 — Screener (CMC + Llama)</title>
+<title>Scan MA50 v1.2 — Screener</title>
 <style>
   :root{
     --bg:#0b1016;--panel:#0f1422;--panel-2:#121a2b;--text:#e9eef5;--muted:#9aa7b8;
     --green:#28d39b;--red:#ff6b6b;--amber:#ffc857;--blue:#8bb7ff;--outline:#1c2742;
+    --chip:#0d1a2a; --chip-bd:#223052;
     --radius:14px; --gap:14px;
+    --drawer-w:420px; --drawer-min:300px; --drawer-max:640px;
   }
   *{box-sizing:border-box}
   body{margin:0;background:linear-gradient(180deg,#0a0f19,#0b1016);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
@@ -24,7 +26,7 @@
 
   .card{background:var(--panel);border:1px solid var(--outline);border-radius:var(--radius);overflow:hidden}
   .table-scroller{width:100%;overflow:auto}
-  table{width:100%;border-collapse:separate;border-spacing:0; min-width:920px;}
+  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1180px;}
   thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));
     color:#cfe0ff;text-align:left;font-weight:700;font-size:12px;text-transform:uppercase;
     letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 12px}
@@ -36,7 +38,35 @@
   .muted{color:var(--muted)}
   .num{font-variant-numeric:tabular-nums; white-space:nowrap;}
   .t-good{color:var(--green)} .t-warn{color:var(--amber)} .t-bad{color:var(--red)}
-  @media (max-width: 1100px){ .col-optional{ display:none; } }
+  @media (max-width: 1200px){ .col-optional{ display:none; } }
+
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{font-size:12px; padding:6px 8px; border-radius:999px;background:var(--chip); border:1px solid var(--chip-bd); color:#dbe6ff;}
+
+  .badges{display:flex;gap:8px;flex-wrap:wrap}
+  .badge{font-size:12px; line-height:1; padding:7px 10px; border-radius:10px;
+    border:1px solid var(--outline); background:rgba(255,255,255,.03); color:var(--text);
+    white-space:nowrap; font-weight:600;}
+  .b-good{ border-color: rgba(40,211,155,.45); box-shadow: inset 0 0 0 999px rgba(40,211,155,.09);}
+  .b-info{ border-color: rgba(139,183,255,.45); box-shadow: inset 0 0 0 999px rgba(139,183,255,.10);}
+  .b-warn{ border-color: rgba(255,200,87,.55); box-shadow: inset 0 0 0 999px rgba(255,200,87,.12);}
+  .b-bad{  border-color: rgba(255,107,107,.55); box-shadow: inset 0 0 0 999px rgba(255,107,107,.12);}
+
+  #cardsWrap{ display:block; margin-top:16px; }
+  .grid{ display:grid; gap:var(--gap); grid-template-columns: repeat(2, minmax(0,1fr)); }
+  @media (min-width:1200px){ .grid{ grid-template-columns: repeat(3, minmax(0,1fr)); } }
+  @media (max-width:800px){ .grid{ grid-template-columns: 1fr; } }
+  .sig-card{background:var(--panel); border:1px solid var(--outline); border-radius:16px;
+    padding:14px; box-shadow:0 6px 18px rgba(0,0,0,.28); display:flex; flex-direction:column; gap:10px;}
+  .sig-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .sig-title{ font-weight:800; font-size:16px; letter-spacing:.2px; }
+  .sig-price{ font-weight:700; }
+  .sig-sub{ color:var(--muted); font-size:12px; }
+  .sig-metrics{ display:flex; gap:8px; flex-wrap:wrap; }
+  .sig-divider{ border:0; border-top:1px solid var(--outline); margin:8px 0; opacity:.7 }
+  .sig-actions{ display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .linkbar a{ color:#9ec5ff; text-decoration:none; margin-right:10px; font-size:12px; }
+  .btn-ghost{ background:transparent; border:1px solid var(--outline); color:#cfe0ff; border-radius:10px; padding:6px 10px; cursor:pointer; font-size:12px; }
 </style>
 </head>
 <body>
@@ -65,24 +95,32 @@
         <th>TVL</th>
         <th>MC/TVL</th>
         <th class="col-optional">Vol/MC (24h)</th>
-        <th class="col-optional">FDV</th>
-        <th class="col-optional">Rank</th>
+        <th class="col-optional">Moy Vol 7j</th>
+        <th class="col-optional">Moy Vol 30j</th>
+        <th class="col-optional">Var Vol 7j/30j</th>
+        <th>RSI D</th>
+        <th class="col-optional">RSI H4</th>
+        <th class="col-optional">ATH (prix)</th>
+        <th>x ATH Mcap</th>
       </tr></thead>
       <tbody></tbody>
     </table>
     <div class="note" id="emptyMsg" style="display:none;padding:10px;">Aucune ligne</div>
   </div></div>
+
+  <div id="cardsWrap"><div class="grid" id="cardsGrid"></div></div>
 </div>
 
 <script>
-/* ===== Helpers de format ===== */
+/* ===== Helpers ===== */
 const debugBox = document.getElementById('debug');
 function debug(msg){ try{ debugBox.classList.add('show'); debugBox.textContent += (debugBox.textContent? '\\n':'') + msg; console.error(msg);}catch(_){} }
 window.addEventListener('error', e=> debug('JS Error: '+(e.error?.message||e.message)));
 window.addEventListener('unhandledrejection', e=> debug('Promise Rejection: '+(e.reason?.message||e.reason)));
 
-const nf2 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 2 });
+const nf0 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 0 });
 const nf1 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 1 });
+const nf2 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 2 });
 const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
   Math.abs(n)>=1e12? nf2.format(n/1e12)+'T' :
   Math.abs(n)>=1e9 ? nf2.format(n/1e9)+'B' :
@@ -90,8 +128,10 @@ const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
   Math.abs(n)>=1e3 ? nf2.format(n/1e3)+'K' : nf2.format(n)
 );
 const fmtPct0 = n => (n==null||isNaN(n)) ? '—' : `${Math.round(+n)}%`;
+const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
+const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
 
-/* ===== DOM refs ===== */
+/* ===== DOM ===== */
 const tbody = document.querySelector('#screener tbody');
 const emptyMsg = document.getElementById('emptyMsg');
 const lastupdate = document.getElementById('lastupdate');
@@ -99,17 +139,36 @@ const searchInput = document.getElementById('search');
 const btnRefresh = document.getElementById('btnRefresh');
 const autoToggle = document.getElementById('autoToggle');
 
+const cardsWrap = document.getElementById('cardsWrap');
+const cardsGrid = document.getElementById('cardsGrid');
+
 let allRows = [];
 let masterData = [];
 let autoTimer=null;
 
-/* ===== Rendu ===== */
+/* ===== Signaux ===== */
+function buildSignals(t){
+  const s=[];
+  if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1});
+  if(t.mc_tvl != null && t.mc_tvl <= 3) s.push({k:'💎 MC/TVL≤3', c:'b-good', pri:3});
+  if(t.mc_tvl != null && t.mc_tvl > 12) s.push({k:'MC/TVL>12', c:'b-bad', pri:2});
+  if(t.var_vol_7_over_30 != null && t.var_vol_7_over_30 >= 1.5) s.push({k:'⚡ Vol7/30≥1.5', c:'b-info', pri:4});
+  if(t.vol_mc_24 != null && t.vol_mc_24 >= 5) s.push({k:'💧 Vol/MC≥5%', c:'b-good', pri:5});
+  if(t.vol_mc_24 != null && t.vol_mc_24 < 1) s.push({k:'Illiquid', c:'b-warn', pri:5});
+  if(t.x_ath_mc != null && t.x_ath_mc >= 3) s.push({k:'🎯 x≥3 ATH Mcap', c:'b-info', pri:6});
+  if(t.x_ath_mc != null && t.x_ath_mc < 1) s.push({k:'Near ATH Mcap', c:'b-warn', pri:7});
+  if(t.rsi_d != null && t.rsi_d <= 35) s.push({k:'🧊 RSI D≤35', c:'b-info', pri:8});
+  if(t.rsi_d != null && t.rsi_d >= 70) s.push({k:'🟥 RSI D≥70', c:'b-bad', pri:8});
+  return s.sort((a,b)=>a.pri-b.pri);
+}
+
+/* ===== Rendu TABLE ===== */
 function render(data){
   masterData = Array.isArray(data?.tokens) ? data.tokens : [];
   lastupdate.textContent = 'Dernière MàJ : ' + (data.updated_at || '—');
 
   tbody.innerHTML=''; allRows.length=0;
-  if(!masterData.length){ emptyMsg.style.display='block'; return; }
+  if(!masterData.length){ emptyMsg.style.display='block'; cardsGrid.innerHTML=''; return; }
   emptyMsg.style.display='none';
 
   masterData.forEach(t=>{
@@ -123,8 +182,14 @@ function render(data){
     const tvl = (t.tvl!=null) ? money(t.tvl) : 'N/D';
     const mctvl = (t.mc!=null && t.tvl!=null && t.tvl>0) ? nf2.format(t.mc/t.tvl) : '—';
     const volmc = (t.vol_mc_24!=null) ? nf2.format(+t.vol_mc_24)+'%' : '—';
-    const fdv = (t.fdv!=null) ? money(t.fdv) : '—';
-    const rank = (t.rank!=null) ? String(t.rank) : '—';
+    const vol7  = (t.vol7_avg!=null) ? money(t.vol7_avg) : '—';
+    const vol30 = (t.vol30_avg!=null) ? money(t.vol30_avg) : '—';
+    const var73 = (t.var_vol_7_over_30!=null) ? nf2.format(+t.var_vol_7_over_30)+'×' : '—';
+    const vol7tvl = (t.vol7_tvl!=null) ? nf2.format(+t.vol7_tvl)+'%' : '—';
+    const rsid = (t.rsi_d!=null) ? nf2.format(+t.rsi_d) : '—';
+    const rsih4= (t.rsi_h4!=null) ? nf2.format(+t.rsi_h4) : '—';
+    const ath  = (t.ath!=null) ? '$'+nf2.format(+t.ath) : '—';
+    const xath = (t.x_ath_mc!=null) ? 'x'+nf1.format(+t.x_ath_mc) : '—';
 
     tr.innerHTML = `
       <td><div class="token"><div class="logo"></div><div><span class="sym">${t.symbol||''}</span><span class="muted"> · ${t.venue||''}</span></div></div></td>
@@ -137,13 +202,18 @@ function render(data){
       <td class="num">${tvl}</td>
       <td class="num">${mctvl}</td>
       <td class="num col-optional">${volmc}</td>
-      <td class="num col-optional">${fdv}</td>
-      <td class="num col-optional">${rank}</td>
+      <td class="num col-optional">${vol7}</td>
+      <td class="num col-optional">${vol30}</td>
+      <td class="num col-optional">${var73}</td>
+      <td class="num">${rsid}</td>
+      <td class="num col-optional">${rsih4}</td>
+      <td class="num col-optional">${ath}</td>
+      <td class="num">${xath}</td>
     `;
 
-    // color rules
+    // couleurs
     const mctvlCell = tr.children[8];
-    const mctvlVal = parseFloat((t.mc!=null && t.tvl!=null && t.tvl>0) ? (t.mc/t.tvl) : NaN);
+    const mctvlVal = (t.mc!=null && t.tvl!=null && t.tvl>0) ? (t.mc/t.tvl) : NaN;
     if(!isNaN(mctvlVal)){
       if(mctvlVal <= 3) mctvlCell.classList.add('t-good');
       else if(mctvlVal <= 8) mctvlCell.classList.add('t-warn');
@@ -156,16 +226,53 @@ function render(data){
       else if(volVal >= 2) volCell.classList.add('t-warn');
       else volCell.classList.add('t-bad');
     }
+    const rsiDCell = tr.children[13];
+    const rsiDVal = parseFloat(t.rsi_d);
+    if(!isNaN(rsiDVal)){
+      if(rsiDVal >= 70) rsiDCell.classList.add('t-bad');
+      else if(rsiDVal >= 45 && rsiDVal <= 60) rsiDCell.classList.add('t-good');
+      else rsiDCell.classList.add('t-warn');
+    }
 
     tbody.appendChild(tr);
     allRows.push(tr);
+  });
+
+  renderCards(masterData);
+}
+
+/* ===== Cartes / signaux ===== */
+function renderCards(list){
+  cardsGrid.innerHTML='';
+  (list||[]).forEach(t=>{
+    const sigs = buildSignals(t);
+    const div = document.createElement('div');
+    div.className='sig-card';
+    div.innerHTML=`
+      <div class="sig-head">
+        <div>
+          <div class="sig-title">${t.symbol||''}</div>
+          <div class="sig-sub">${t.alert_date||'—'} · ${t.venue||''}</div>
+        </div>
+        <div class="sig-price">${t.price!=null ? '$'+nf2.format(+t.price) : '—'}</div>
+      </div>
+      <div class="sig-sub">MC ${money(t.mc)} · TVL ${t.tvl!=null?money(t.tvl):'N/D'}</div>
+      <div class="sig-metrics">
+        <span class="chip">MC/TVL ${t.mc_tvl!=null?fmtNum2(t.mc_tvl):'—'}</span>
+        <span class="chip">RSI D ${t.rsi_d!=null?nf2.format(+t.rsi_d):'—'}</span>
+        <span class="chip">x ATH Mcap ${t.x_ath_mc!=null?('x'+nf1.format(+t.x_ath_mc)):'—'}</span>
+        <span class="chip">Vol/MC 24h ${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</span>
+        <span class="chip">Vol7/30 ${t.var_vol_7_over_30!=null?nf2.format(+t.var_vol_7_over_30)+'×':'—'}</span>
+      </div>
+      ${ (sigs.length? '<div class="badges">'+sigs.map(x=>`<span class="badge ${x.c}">${x.k}</span>`).join('')+'</div>' : '') }
+    `;
+    cardsGrid.appendChild(div);
   });
 }
 
 /* ===== Chargement ===== */
 async function loadData(){
   try{
-    // IMPORTANT: data.json au même niveau que index.html
     const res = await fetch('data.json?ts='+Date.now(), { cache:'no-store' });
     if(!res.ok){
       debug(`HTTP ${res.status} ${res.statusText} sur data.json`);
@@ -188,23 +295,21 @@ async function loadData(){
   }
 }
 
-/* ===== Recherche ===== */
+/* ===== Recherche & Refresh ===== */
 document.getElementById('search').addEventListener('input', (e)=>{
   const q = e.target.value.trim().toLowerCase();
-  allRows.forEach(r=>{
+  document.querySelectorAll('#screener tbody tr').forEach(r=>{
     r.style.display = r.innerText.toLowerCase().includes(q) ? '' : 'none';
   });
 });
-
-/* ===== Refresh ===== */
 document.getElementById('btnRefresh').addEventListener('click', loadData);
-const autoToggleEl = document.getElementById('autoToggle');
+
 function startAuto(){ stopAuto(); autoTimer=setInterval(loadData, 60_000); }
 function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } }
-autoToggleEl.checked = localStorage.getItem('autoRefresh')==='1';
-if(autoToggleEl.checked) startAuto();
-autoToggleEl.addEventListener('change', ()=>{
-  if(autoToggleEl.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); }
+autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
+if(autoToggle.checked) startAuto();
+autoToggle.addEventListener('change', ()=>{
+  if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); }
   else { stopAuto(); localStorage.setItem('autoRefresh','0'); }
 });
 
