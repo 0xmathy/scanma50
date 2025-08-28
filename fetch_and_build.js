@@ -1,25 +1,26 @@
 // scripts/fetch_and_build.js
-// Source: Google Sheet (onglet history uniquement) → enrichi via CoinGecko (prix/MC/ATH/RSI) + DeFiLlama (TVL) → data.json
-// Node 20 (fetch natif). CommonJS (require) pour simplicité.
+// Google Sheet (history ≤2j) → CMC (quotes) → DeFiLlama (TVL) → data.json
+// Node 20 (fetch natif). CommonJS.
 
 const fs = require('fs');
 const { parse } = require('csv-parse/sync');
 
-// ====== CONFIG ======
+/* ====== CONFIG ====== */
 const SHEET_URL_HISTORY =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=916004394&single=true&output=csv";
 
-const GECKO_BASE = "https://api.coingecko.com/api/v3";
+const CMC_KEY  = process.env.CMC_API_KEY || "";
+const CMC_BASE = "https://pro-api.coinmarketcap.com/v1";
 const LLAMA_BASE = "https://api.llama.fi";
 
-// Anti-rate-limit simple
-const THROTTLE_MS = 400;
+// Anti-rate-limit light
+const THROTTLE_MS = 500;
 const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
 
-// ====== UTILS ======
+/* ====== UTILS ====== */
 function normalizeSymbol(asset){
   if(!asset) return "";
-  const core = String(asset).split(':').pop().trim();               // "BINANCE:AVAXUSDT" → "AVAXUSDT"
+  const core = String(asset).split(':').pop().trim(); // "BINANCE:AVAXUSDT" → "AVAXUSDT"
   return core.replace(/USDT|USD|USDC|PERP|_PERP|\/.*$/i,"").trim().toUpperCase();
 }
 function parseVenue(asset){
@@ -39,14 +40,14 @@ async function fetchCsv(url, label){
   const text = await res.text();
   return parse(text, { columns:true, skip_empty_lines:true });
 }
-async function throttledJson(url, label){
+async function throttledJson(url, label, opts={}){
   await sleep(THROTTLE_MS);
-  const res = await fetch(url);
+  const res = await fetch(url, opts);
   if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
   return await res.json();
 }
 
-// ====== 1) LIRE SHEET "history" (≤ 2 jours) ======
+/* ====== 1) FEUILLE history ≤ 2 jours ====== */
 async function collectFromHistory(){
   console.log("➡️  Lecture CSV: history…");
   const recs = await fetchCsv(SHEET_URL_HISTORY, "history");
@@ -79,40 +80,30 @@ async function collectFromHistory(){
   return out;
 }
 
-// ====== 2) COINGECKO ======
-async function geckoSearchIdBySymbol(symbol){
-  const data = await throttledJson(`${GECKO_BASE}/search?query=${encodeURIComponent(symbol)}`, `Gecko search ${symbol}`);
-  const coins = data?.coins || [];
-  const exact = coins.filter(c => String(c.symbol||'').toUpperCase() === symbol.toUpperCase());
-  const pick = exact[0] || coins[0] || null;
-  return pick ? pick.id : null;
-}
-async function geckoMarkets(ids){
-  if(!ids.length) return [];
-  const url = `${GECKO_BASE}/coins/markets?vs_currency=usd&ids=${encodeURIComponent(ids.join(','))}&price_change_percentage=24h,7d,30d,1y&per_page=250`;
-  return await throttledJson(url, "Gecko markets");
-}
-async function geckoMarketChart(id, days=90, interval=''){
-  const url = `${GECKO_BASE}/coins/${id}/market_chart?vs_currency=usd&days=${days}${interval?`&interval=${interval}`:''}`;
-  return await throttledJson(url, `Gecko chart ${id} ${days}d`);
-}
-function computeRSI(closes, period=14){
-  if(!closes || closes.length < period+1) return null;
-  const deltas = [];
-  for(let i=1;i<closes.length;i++) deltas.push(closes[i]-closes[i-1]);
-  let gain=0, loss=0;
-  for(let i=0;i<period;i++){ const d=deltas[i]; if(d>0) gain+=d; else loss-=d; }
-  gain/=period; loss/=period;
-  for(let i=period;i<deltas.length;i++){
-    const d=deltas[i]; const g=d>0?d:0; const l=d<0?-d:0;
-    gain=(gain*(period-1)+g)/period; loss=(loss*(period-1)+l)/period;
+/* ====== 2) CMC QUOTES (prix/MC/%/vol/supply/FDV/rank) ====== */
+async function cmcQuotesBySymbols(symbols){
+  if(!CMC_KEY){ console.warn("⚠️  CMC_API_KEY manquante."); return {}; }
+
+  // batch par 50
+  const out = {};
+  for(let i=0;i<symbols.length;i+=50){
+    const batch = symbols.slice(i,i+50);
+    const url = `${CMC_BASE}/cryptocurrency/quotes/latest?symbol=${encodeURIComponent(batch.join(','))}&convert=USD`;
+    try{
+      const data = await throttledJson(url, "CMC quotes", { headers: { 'X-CMC_PRO_API_KEY': CMC_KEY } });
+      if(data && data.data){
+        Object.entries(data.data).forEach(([sym, obj])=>{
+          out[sym.toUpperCase()] = obj;
+        });
+      }
+    }catch(e){
+      console.warn('CMC quotes error:', e.message);
+    }
   }
-  if(loss===0) return 100;
-  const rs = gain/loss;
-  return 100 - (100/(1+rs));
+  return out;
 }
 
-// ====== 3) DEFI LLAMA (TVL) ======
+/* ====== 3) DEFI LLAMA TVL (auto-match best-effort) ====== */
 let LLAMA_PROTOCOLS_CACHE = null;
 async function llamaProtocols(){
   if(LLAMA_PROTOCOLS_CACHE) return LLAMA_PROTOCOLS_CACHE;
@@ -134,50 +125,45 @@ async function matchTVL(symbol){
   }catch{ return { tvl:null, source:null }; }
 }
 
-// ====== 4) ENRICH PIPELINE ======
+/* ====== 4) ENRICH ====== */
 async function enrich(tokens){
-  // 4.1 Résoudre ids Gecko
-  for(const t of tokens){
-    try{ t._gid = await geckoSearchIdBySymbol(t.symbol); }
-    catch{ t._gid = null; }
-    await sleep(150);
-  }
-  const idMap = tokens.filter(t=>t._gid).reduce((m,t)=>{ m[t._gid]=t; return m; }, {});
+  // 4.1 CMC Market data
+  const symList = tokens.map(t=>t.symbol);
+  const quotes = await cmcQuotesBySymbols(symList);
 
-  // 4.2 Marchés (prix/MC/variations/vol/supply/ath)
-  let markets=[];
-  const ids = Object.keys(idMap);
-  for(let i=0;i<ids.length;i+=150){
-    const batch = ids.slice(i,i+150);
-    try{
-      const res = await geckoMarkets(batch);
-      markets = markets.concat(res||[]);
-    }catch(e){ console.warn('markets batch err:', e.message); }
-    await sleep(250);
-  }
-  markets.forEach(m=>{
-    const t = idMap[m.id]; if(!t) return;
-    t.price = m.current_price ?? null;
-    t.mc = m.market_cap ?? null;
-    t.rank = m.market_cap_rank ?? null;
-    t.d24 = m.price_change_percentage_24h ?? null;
-    t.d7  = m.price_change_percentage_7d_in_currency ?? null;
-    t.d30 = m.price_change_percentage_30d_in_currency ?? null;
-    t.d1y = m.price_change_percentage_1y_in_currency ?? null;
+  tokens.forEach(t=>{
+    const q = quotes[t.symbol.toUpperCase()];
+    const usd = q?.quote?.USD;
+    if(usd){
+      t.price = usd.price ?? null;
+      t.mc    = usd.market_cap ?? null;
+      t.rank  = q.cmc_rank ?? null;
 
-    t.volume_24h = m.total_volume ?? null;
-    t.circulating_supply = m.circulating_supply ?? null;
-    t.total_supply = m.total_supply ?? null;
-    t.max_supply = m.max_supply ?? null;
-    t.fdv = m.fully_diluted_valuation ?? null;
+      t.d24   = usd.percent_change_24h ?? null;
+      t.d7    = usd.percent_change_7d ?? null;
+      t.d30   = usd.percent_change_30d ?? null;
+      // t.d1y : non garanti par CMC free → on laisse null
 
-    t.ath = m.ath ?? null;
-    t.ath_date = m.ath_date ? String(m.ath_date).slice(0,10) : null;
+      t.volume_24h = usd.volume_24h ?? null;
+      t.circulating_supply = q.circulating_supply ?? null;
+      t.total_supply = q.total_supply ?? null;
+      t.max_supply   = q.max_supply ?? null;
+      t.fdv = usd.fully_diluted_market_cap ?? null;
 
-    t.vol_mc_24 = (t.volume_24h && t.mc) ? (t.volume_24h / t.mc * 100) : null;
+      t.vol_mc_24 = (t.volume_24h && t.mc) ? (t.volume_24h / t.mc * 100) : null;
+    }else{
+      t.price=t.mc=t.rank=t.d24=t.d7=t.d30=t.volume_24h=t.fdv=null;
+      t.circulating_supply=t.total_supply=t.max_supply=null;
+      t.vol_mc_24=null;
+    }
+
+    // champs NON gérés ici (pas d’OHLCV côté CMC free):
+    t.rsi_d=null; t.rsi_h4=null;
+    t.ath=null; t.ath_date=null; t.ath_mc=null; t.x_ath_mc=null; t.price_target_ath_mc=null;
+    t.vol7_avg=null; t.vol30_avg=null; t.var_vol_7_over_30=null; t.vol7_tvl=null;
   });
 
-  // 4.3 TVL
+  // 4.2 TVL
   for(const t of tokens){
     const { tvl, source } = await matchTVL(t.symbol);
     t.tvl = tvl; t.tvl_source = source;
@@ -185,69 +171,17 @@ async function enrich(tokens){
     await sleep(120);
   }
 
-  // 4.4 RSI + volumes 7j/30j
-  for(const t of tokens){
-    if(!t._gid){ t.rsi_d=t.rsi_h4=t.vol7_avg=t.vol30_avg=t.var_vol_7_over_30=t.vol7_tvl=null; continue; }
-
-    // Daily 90j
-    let daily=null;
-    try{
-      daily = await geckoMarketChart(t._gid, 90, 'daily');
-    }catch(e){ console.warn(`chart daily ${t.symbol}:`, e.message); }
-
-    if(daily){
-      const closesD = (daily.prices||[]).map(p=> p[1]).filter(Number.isFinite);
-      t.rsi_d = computeRSI(closesD, 14);
-
-      const volsDaily = (daily.total_volumes||[]).map(v=> v[1]).filter(Number.isFinite);
-      const last7  = volsDaily.slice(-7);
-      const last30 = volsDaily.slice(-30);
-      const avg7  = last7.length  ? (last7.reduce((a,b)=>a+b,0)/last7.length)   : null;
-      const avg30 = last30.length ? (last30.reduce((a,b)=>a+b,0)/last30.length) : null;
-      t.vol7_avg = avg7; t.vol30_avg = avg30;
-      t.var_vol_7_over_30 = (avg7 && avg30) ? (avg7/avg30) : null;
-      t.vol7_tvl = (avg7 && t.tvl) ? (avg7 / t.tvl * 100) : null;
-    }
-
-    // Hourly 7j → RSI H4 (agrégation 4 bougies)
-    let hourly=null;
-    try{
-      hourly = await geckoMarketChart(t._gid, 7, 'hourly');
-    }catch(e){ console.warn(`chart hourly ${t.symbol}:`, e.message); }
-    if(hourly){
-      const closesH = (hourly.prices||[]).map(p=> p[1]).filter(Number.isFinite);
-      const h4=[]; for(let i=0;i<closesH.length;i+=4){ h4.push(closesH[Math.min(i+3, closesH.length-1)]); }
-      t.rsi_h4 = computeRSI(h4, 14);
-    } else {
-      t.rsi_h4 = null;
-    }
-
-    await sleep(200);
-  }
-
-  // 4.5 ATH Mcap & x
-  tokens.forEach(t=>{
-    if(t.ath!=null && t.price!=null && t.mc!=null){
-      const ath_mc = (t.circulating_supply!=null) ? (t.ath * t.circulating_supply) : (t.mc * (t.ath / t.price));
-      t.ath_mc = ath_mc ?? null;
-      t.x_ath_mc = (ath_mc && t.mc) ? (ath_mc / t.mc) : ((t.price && t.ath) ? (t.ath / t.price) : null);
-      t.price_target_ath_mc = (t.x_ath_mc && t.price) ? (t.price * t.x_ath_mc) : null;
-    } else {
-      t.ath_mc = null; t.x_ath_mc = null; t.price_target_ath_mc = null;
-    }
-  });
-
-  // 4.6 arrondis doux
+  // 4.3 Arrondis doux
   const round = (n, d=6)=> (typeof n==='number' && isFinite(n)) ? +n.toFixed(d) : n;
   tokens.forEach(t=>{
-    ['price','mc','tvl','mc_tvl','vol_mc_24','vol7_tvl','var_vol_7_over_30','rsi_d','rsi_h4','ath','ath_mc','x_ath_mc','price_target_ath_mc']
-      .forEach(k=> { if(t[k]!=null) t[k]=round(t[k], (k==='mc_tvl'||k==='x_ath_mc')?2:6); });
+    ['price','mc','tvl','mc_tvl','vol_mc_24']
+      .forEach(k=> { if(t[k]!=null) t[k]=round(t[k], (k==='mc_tvl')?2:6); });
   });
 
   return tokens;
 }
 
-// ====== 5) MAIN ======
+/* ====== 5) MAIN ====== */
 (async function main(){
   try{
     const base = await collectFromHistory();
