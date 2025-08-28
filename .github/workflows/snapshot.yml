@@ -23,7 +23,7 @@ jobs:
       - name: Run fetch_and_build (CMC only + Llama TVL)
         env:
           CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
-        run: node scripts/fetch_and_build.js
+        run: node fetch_and_build.js
 
       - name: Commit & push data.json (always)
         if: always()
