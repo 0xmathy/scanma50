@@ -55,14 +55,27 @@
   .grid{ display:grid; gap:var(--gap); grid-template-columns: repeat(2, minmax(0,1fr)); }
   @media (min-width:1200px){ .grid{ grid-template-columns: repeat(3, minmax(0,1fr)); } }
   @media (max-width:800px){ .grid{ grid-template-columns: 1fr; } }
+
   .sig-card{background:var(--panel); border:1px solid var(--outline); border-radius:16px;
     padding:14px; box-shadow:0 6px 18px rgba(0,0,0,.28); display:flex; flex-direction:column; gap:10px;}
+  .sig-card.good { border-color: rgba(40,211,155,.5); box-shadow:0 6px 18px rgba(40,211,155,.12); }
+  .sig-card.warn { border-color: rgba(255,200,87,.5);  box-shadow:0 6px 18px rgba(255,200,87,.12); }
+  .sig-card.bad  { border-color: rgba(255,107,107,.5); box-shadow:0 6px 18px rgba(255,107,107,.14); }
+
   .sig-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .sig-title{ font-weight:800; font-size:16px; letter-spacing:.2px; }
   .sig-price{ font-weight:700; }
   .sig-sub{ color:var(--muted); font-size:12px; }
   .sig-metrics{ display:flex; gap:8px; flex-wrap:wrap; }
   .sig-divider{ border:0; border-top:1px solid var(--outline); margin:8px 0; opacity:.7 }
+
+  /* Détails repliables */
+  .details { display:none; border-top:1px solid var(--outline); padding-top:10px; }
+  .details.open { display:block; }
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px;margin:6px 0;}
+  .kv .k{color:var(--muted)}
+  .actions{ display:flex; justify-content:flex-end; gap:8px; }
+  .btn-ghost{ background:transparent; border:1px solid var(--outline); color:#cfe0ff; border-radius:10px; padding:6px 10px; cursor:pointer; font-size:12px; }
 </style>
 </head>
 <body>
@@ -108,12 +121,13 @@
 </div>
 
 <script>
-/* ===== Debug helpers ===== */
+/* ==== Debug ==== */
 const debugBox = document.getElementById('debug');
 function debug(msg){ try{ debugBox.classList.add('show'); debugBox.textContent += (debugBox.textContent? '\\n':'') + msg; console.error(msg);}catch(_){} }
 window.addEventListener('error', e=> debug('JS Error: '+(e.error?.message||e.message)));
 window.addEventListener('unhandledrejection', e=> debug('Promise Rejection: '+(e.reason?.message||e.reason)));
 
+/* ==== Format ==== */
 const nf1 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 1 });
 const nf2 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 2 });
 const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
@@ -126,7 +140,7 @@ const fmtPct0 = n => (n==null||isNaN(n)) ? '—' : `${Math.round(+n)}%`;
 const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
 const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
 
-/* ===== DOM ===== */
+/* ==== DOM ==== */
 const tbody = document.querySelector('#screener tbody');
 const emptyMsg = document.getElementById('emptyMsg');
 const lastupdate = document.getElementById('lastupdate');
@@ -136,9 +150,9 @@ const autoToggle = document.getElementById('autoToggle');
 const cardsGrid = document.getElementById('cardsGrid');
 
 let allRows = [];
-let autoTimer = null;  /* ✅ Une seule déclaration */
+let autoTimer = null;
 
-/* ===== Signaux ===== */
+/* ==== Signaux & score carte ==== */
 function buildSignals(t){
   const s=[];
   if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1});
@@ -153,8 +167,18 @@ function buildSignals(t){
   if(t.rsi_d != null && t.rsi_d >= 70) s.push({k:'🟥 RSI D≥70', c:'b-bad', pri:8});
   return s.sort((a,b)=>a.pri-b.pri);
 }
+function cardClass(t){
+  // règle simple : rouge si RISQUE fort, vert si au moins 2 “bons” signaux, sinon orange/neutral
+  let good=0, bad=0;
+  if(t.mc_tvl!=null){ if(t.mc_tvl<=3) good++; if(t.mc_tvl>12) bad++; }
+  if(t.vol_mc_24!=null){ if(t.vol_mc_24>=5) good++; if(t.vol_mc_24<1) bad++; }
+  if(t.rsi_d!=null){ if(t.rsi_d<=35) good++; if(t.rsi_d>=70) bad++; }
+  if(bad>=1 && good===0) return 'bad';
+  if(good>=2 && bad===0) return 'good';
+  return 'warn';
+}
 
-/* ===== Rendu ===== */
+/* ==== Rendu TABLE ==== */
 function render(json){
   const data = Array.isArray(json?.tokens) ? json.tokens : [];
   lastupdate.textContent = 'Dernière MàJ : ' + (json.updated_at || '—');
@@ -229,34 +253,106 @@ function render(json){
     allRows.push(tr);
   });
 
-  // cartes
+  renderCards(data);
+}
+
+/* ==== Cartes ==== */
+function renderCards(list){
   cardsGrid.innerHTML='';
-  data.forEach(t=>{
+  (list||[]).forEach((t,idx)=>{
     const sigs = buildSignals(t);
+    const cls = cardClass(t);
+
     const div = document.createElement('div');
-    div.className='sig-card';
+    div.className='sig-card '+cls;
+
+    const price = (t.price!=null) ? '$'+nf2.format(+t.price) : '—';
+    const mc  = money(t.mc);
+    const tvl = (t.tvl!=null) ? money(t.tvl) : 'N/D';
+
+    const mctvl = (t.mc_tvl!=null)? fmtNum2(t.mc_tvl) : '—';
+    const rsid = (t.rsi_d!=null) ? nf2.format(+t.rsi_d) : '—';
+    const xath = (t.x_ath_mc!=null) ? 'x'+nf1.format(+t.x_ath_mc) : '—';
+    const volmc = (t.vol_mc_24!=null) ? fmtPct(t.vol_mc_24) : '—';
+    const var73 = (t.var_vol_7_over_30!=null)? nf2.format(+t.var_vol_7_over_30)+'×' : '—';
+
+    // id pour toogle
+    const detId = `det-${idx}-${(t.symbol||'X').toLowerCase()}`;
+
     div.innerHTML=`
       <div class="sig-head">
         <div>
           <div class="sig-title">${t.symbol||''}</div>
           <div class="sig-sub">${t.alert_date||'—'} · ${t.venue||''}</div>
         </div>
-        <div class="sig-price">${t.price!=null ? '$'+nf2.format(+t.price) : '—'}</div>
+        <div class="sig-price">${price}</div>
       </div>
-      <div class="sig-sub">MC ${money(t.mc)} · TVL ${t.tvl!=null?money(t.tvl):'N/D'}</div>
+
+      <div class="sig-sub">MC ${mc} · TVL ${tvl}</div>
+
       <div class="sig-metrics">
-        <span class="chip">MC/TVL ${t.mc_tvl!=null?fmtNum2(t.mc_tvl):'—'}</span>
-        <span class="chip">RSI D ${t.rsi_d!=null?nf2.format(+t.rsi_d):'—'}</span>
-        <span class="chip">x ATH Mcap ${t.x_ath_mc!=null?('x'+nf1.format(+t.x_ath_mc)):'—'}</span>
-        <span class="chip">Vol/MC 24h ${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</span>
-        <span class="chip">Vol7/30 ${t.var_vol_7_over_30!=null?nf2.format(+t.var_vol_7_over_30)+'×':'—'}</span>
+        <span class="chip">MC/TVL ${mctvl}</span>
+        <span class="chip">RSI D ${rsid}</span>
+        <span class="chip">x ATH Mcap ${xath}</span>
+        <span class="chip">Vol/MC 24h ${volmc}</span>
+        <span class="chip">Vol7/30 ${var73}</span>
+      </div>
+
+      ${ (sigs.length? '<div class="badges">'+sigs.map(x=>`<span class="badge ${x.c}">${x.k}</span>`).join('')+'</div>' : '') }
+
+      <div class="actions">
+        <button class="btn-ghost" data-toggle="${detId}">+ Détails</button>
+      </div>
+
+      <div id="${detId}" class="details">
+        <div class="kv">
+          <div class="k">Prix</div><div class="num">${price}</div>
+          <div class="k">Δ24h / 7j / 30j</div>
+            <div class="num">${fmtPct0(t.d24)} · ${fmtPct0(t.d7)} · ${fmtPct0(t.d30)}</div>
+
+          <div class="k">Market Cap</div><div class="num">${mc}</div>
+          <div class="k">TVL</div><div class="num">${t.tvl!=null?money(t.tvl):'N/D'}</div>
+          <div class="k">MC/TVL</div><div class="num">${t.mc_tvl!=null?fmtNum2(t.mc_tvl):'—'}</div>
+
+          <div class="k">Vol/MC (24h)</div><div class="num">${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</div>
+          <div class="k">Moy Vol 7j / 30j</div>
+            <div class="num">${t.vol7_avg!=null?money(t.vol7_avg):'—'} · ${t.vol30_avg!=null?money(t.vol30_avg):'—'}</div>
+          <div class="k">Var Vol 7j/30j</div><div class="num">${t.var_vol_7_over_30!=null?nf2.format(+t.var_vol_7_over_30)+'×':'—'}</div>
+          <div class="k">Moy Vol7j / TVL</div><div class="num">${t.vol7_tvl!=null?nf2.format(+t.vol7_tvl)+'%':'—'}</div>
+
+          <div class="k">RSI Daily</div><div class="num">${t.rsi_d!=null?nf2.format(+t.rsi_d):'—'}</div>
+          <div class="k">RSI H4</div><div class="num">${t.rsi_h4!=null?nf2.format(+t.rsi_h4):'—'}</div>
+
+          <div class="k">ATH (prix)</div><div class="num">${t.ath!=null?('$'+nf2.format(+t.ath)):'—'} ${t.ath_date?('· '+t.ath_date):''}</div>
+          <div class="k">ATH Mcap</div><div class="num">${t.ath_mc!=null?money(t.ath_mc):'—'}</div>
+          <div class="k">x ATH Mcap</div><div class="num">${t.x_ath_mc!=null?('x'+nf1.format(+t.x_ath_mc)):'—'}</div>
+          <div class="k">Prix cible (ATH Mcap)</div><div class="num">${t.price_target_ath_mc!=null?('$'+nf2.format(+t.price_target_ath_mc)):'—'}</div>
+
+          <div class="k">Rank</div><div class="num">${t.rank!=null?String(t.rank):'—'}</div>
+          <div class="k">Supplies</div>
+            <div class="num">
+              circ: ${t.circulating_supply!=null?nf2.format(+t.circulating_supply):'—'}
+              · total: ${t.total_supply!=null?nf2.format(+t.total_supply):'—'}
+              · max: ${t.max_supply!=null?nf2.format(+t.max_supply):'—'}
+              · FDV: ${t.fdv!=null?money(t.fdv):'—'}
+            </div>
+          <div class="k">Source TVL</div><div class="num">${t.tvl_source||'—'}</div>
+        </div>
       </div>
     `;
+
+    // Toggle details
+    div.querySelector(`[data-toggle="${detId}"]`).addEventListener('click', (ev)=>{
+      const panel = div.querySelector('#'+detId);
+      const open = panel.classList.toggle('open');
+      ev.currentTarget.textContent = open ? '— Masquer' : '+ Détails';
+    });
+
     cardsGrid.appendChild(div);
   });
 }
 
-/* ===== Charger data.json ===== */
+/* ==== Data ==== */
 async function loadData(){
   try{
     const res = await fetch('data.json?ts='+Date.now(), { cache:'no-store' });
@@ -271,7 +367,7 @@ async function loadData(){
   }
 }
 
-/* ===== Recherche & Refresh & Auto ===== */
+/* ==== Search / Refresh / Auto ==== */
 document.getElementById('search').addEventListener('input', (e)=>{
   const q = e.target.value.trim().toLowerCase();
   document.querySelectorAll('#screener tbody tr').forEach(r=>{
@@ -289,7 +385,7 @@ autoToggle.addEventListener('change', ()=>{
   else { stopAuto(); localStorage.setItem('autoRefresh','0'); }
 });
 
-/* ===== Boot ===== */
+/* ==== Boot ==== */
 document.addEventListener('DOMContentLoaded', loadData);
 </script>
 </body>
