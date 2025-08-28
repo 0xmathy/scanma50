@@ -25,7 +25,7 @@ jobs:
           CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
           THROTTLE_MS: "450"           # délai min entre appels HTTP
           MAX_TOKENS_PER_RUN: "50"     # limite de tokens traités par run
-        run: node scripts/fetch_and_build.js
+        run: node fetch_and_build.js
 
       - name: Commit & push data.json (always)
         if: always()
