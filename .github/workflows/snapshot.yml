@@ -27,7 +27,7 @@ jobs:
           THROTTLE_MS: "1200"          # délai min entre requêtes (ms)
           MAX_TOKENS_PER_RUN: "40"     # limite de tokens traités par run
           RSI_H4: "0"                  # 0 = désactivé (moins d'appels). Mets "1" si tu le veux.
-        run: node scripts/fetch_and_build.js
+        run: node fetch_and_build.js
 
       - name: Commit & push data.json (always)
         if: always()
