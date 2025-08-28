@@ -1,23 +1,24 @@
 // scripts/fetch_and_build.js
-// Google Sheet (history ≤2j) → CMC (quotes) → DeFiLlama (TVL) → data.json
+// Sheet (history ≤2j) → CMC (market) + DeFiLlama (TVL) + CEX Klines (RSI/ATH/vol7/30) → data.json
 // Node 20 (fetch natif). CommonJS.
 
 const fs = require('fs');
 const { parse } = require('csv-parse/sync');
 
-/* ====== CONFIG ====== */
+/* ========= CONFIG ========= */
 const SHEET_URL_HISTORY =
   "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=916004394&single=true&output=csv";
 
 const CMC_KEY  = process.env.CMC_API_KEY || "";
 const CMC_BASE = "https://pro-api.coinmarketcap.com/v1";
+
 const LLAMA_BASE = "https://api.llama.fi";
 
-// Anti-rate-limit light
-const THROTTLE_MS = 500;
+const THROTTLE_MS = Number(process.env.THROTTLE_MS || 450);
+const MAX_TOKENS_PER_RUN = Number(process.env.MAX_TOKENS_PER_RUN || 50);
 const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
 
-/* ====== UTILS ====== */
+/* ========= UTILS ========= */
 function normalizeSymbol(asset){
   if(!asset) return "";
   const core = String(asset).split(':').pop().trim(); // "BINANCE:AVAXUSDT" → "AVAXUSDT"
@@ -40,14 +41,14 @@ async function fetchCsv(url, label){
   const text = await res.text();
   return parse(text, { columns:true, skip_empty_lines:true });
 }
-async function throttledJson(url, label, opts={}){
+async function jget(url, label, opts={}){
   await sleep(THROTTLE_MS);
   const res = await fetch(url, opts);
   if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
   return await res.json();
 }
 
-/* ====== 1) FEUILLE history ≤ 2 jours ====== */
+/* ========= SHEET ========= */
 async function collectFromHistory(){
   console.log("➡️  Lecture CSV: history…");
   const recs = await fetchCsv(SHEET_URL_HISTORY, "history");
@@ -70,44 +71,39 @@ async function collectFromHistory(){
     if(seen.has(symbol)) continue;
     seen.add(symbol);
 
-    out.push({
-      symbol,
-      venue: parseVenue(asset),
-      alert_date: dk || ymdParis(today)
-    });
+    out.push({ symbol, venue: parseVenue(asset), alert_date: dk || ymdParis(today) });
   }
-  console.log(`✅ ${out.length} tokens (history ≤2j)`);
-  return out;
+  if(out.length > MAX_TOKENS_PER_RUN){
+    console.warn(`⚠️  Trop de tokens (${out.length}) → on limite à ${MAX_TOKENS_PER_RUN}`);
+  }
+  console.log(`✅ ${Math.min(out.length, MAX_TOKENS_PER_RUN)} tokens (history ≤2j)`);
+  return out.slice(0, MAX_TOKENS_PER_RUN);
 }
 
-/* ====== 2) CMC QUOTES (prix/MC/%/vol/supply/FDV/rank) ====== */
+/* ========= CMC (market) ========= */
 async function cmcQuotesBySymbols(symbols){
   if(!CMC_KEY){ console.warn("⚠️  CMC_API_KEY manquante."); return {}; }
-
-  // batch par 50
   const out = {};
   for(let i=0;i<symbols.length;i+=50){
     const batch = symbols.slice(i,i+50);
     const url = `${CMC_BASE}/cryptocurrency/quotes/latest?symbol=${encodeURIComponent(batch.join(','))}&convert=USD`;
     try{
-      const data = await throttledJson(url, "CMC quotes", { headers: { 'X-CMC_PRO_API_KEY': CMC_KEY } });
+      const data = await jget(url, "CMC quotes", { headers: { 'X-CMC_PRO_API_KEY': CMC_KEY } });
       if(data && data.data){
         Object.entries(data.data).forEach(([sym, obj])=>{
           out[sym.toUpperCase()] = obj;
         });
       }
-    }catch(e){
-      console.warn('CMC quotes error:', e.message);
-    }
+    }catch(e){ console.warn('CMC quotes error:', e.message); }
   }
   return out;
 }
 
-/* ====== 3) DEFI LLAMA TVL (auto-match best-effort) ====== */
+/* ========= DeFiLlama (TVL) ========= */
 let LLAMA_PROTOCOLS_CACHE = null;
 async function llamaProtocols(){
   if(LLAMA_PROTOCOLS_CACHE) return LLAMA_PROTOCOLS_CACHE;
-  LLAMA_PROTOCOLS_CACHE = await throttledJson(`${LLAMA_BASE}/protocols`, "Llama protocols");
+  LLAMA_PROTOCOLS_CACHE = await jget(`${LLAMA_BASE}/protocols`, "Llama protocols");
   return LLAMA_PROTOCOLS_CACHE;
 }
 async function matchTVL(symbol){
@@ -125,12 +121,70 @@ async function matchTVL(symbol){
   }catch{ return { tvl:null, source:null }; }
 }
 
-/* ====== 4) ENRICH ====== */
-async function enrich(tokens){
-  // 4.1 CMC Market data
-  const symList = tokens.map(t=>t.symbol);
-  const quotes = await cmcQuotesBySymbols(symList);
+/* ========= CEX KLINES (OHLCV) ========= */
+// Normalisation: retourne [{t, o, h, l, c, v}, ...] (t en ms)
+async function fetchKlines(venue, rawSymbol){
+  if(!venue || !rawSymbol) return [];
+  const v = venue.toUpperCase();
+  let rows = [];
 
+  try{
+    if(v === 'BINANCE'){
+      const symbol = rawSymbol.toUpperCase().replace(/[^A-Z0-9]/g,'');
+      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=365`;
+      const data = await jget(url, `BINANCE klines ${symbol}`);
+      rows = (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
+    } else if(v === 'MEXC'){
+      const symbol = rawSymbol.toUpperCase().replace(/[^A-Z0-9]/g,'');
+      const url = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=365`;
+      const data = await jget(url, `MEXC klines ${symbol}`);
+      rows = (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
+    } else if(v === 'BYBIT'){
+      const symbol = rawSymbol.toUpperCase().replace(/[^A-Z0-9]/g,'');
+      const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=D&limit=365`;
+      const data = await jget(url, `BYBIT klines ${symbol}`);
+      const list = data?.result?.list || [];
+      rows = list.map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]})).reverse(); // Bybit renvoie décroissant
+    } else if(v === 'OKX'){
+      // OKX instId: AVAX-USDT (avec tiret). On insère un '-' avant USDT/USDC/USD si absent.
+      let instId = rawSymbol.toUpperCase();
+      if(!instId.includes('-')){
+        instId = instId.replace(/(USDT|USDC|USD)$/,'-$1');
+      }
+      const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=1D&limit=365`;
+      const data = await jget(url, `OKX candles ${instId}`);
+      const list = data?.data || [];
+      rows = list.map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]})).reverse(); // OKX décroissant
+    } else {
+      return [];
+    }
+  }catch(e){
+    console.warn(`Klines ${venue}:${rawSymbol} → ${e.message}`);
+    return [];
+  }
+  return rows.filter(r => Number.isFinite(r.c) && Number.isFinite(r.v));
+}
+
+function computeRSI(closes, period=14){
+  if(!closes || closes.length < period+1) return null;
+  const deltas = [];
+  for(let i=1;i<closes.length;i++) deltas.push(closes[i]-closes[i-1]);
+  let gain=0, loss=0;
+  for(let i=0;i<period;i++){ const d=deltas[i]; if(d>0) gain+=d; else loss-=d; }
+  gain/=period; loss/=period;
+  for(let i=period;i<deltas.length;i++){
+    const d=deltas[i]; const g=d>0?d:0; const l=d<0?-d:0;
+    gain=(gain*(period-1)+g)/period; loss=(loss*(period-1)+l)/period;
+  }
+  if(loss===0) return 100;
+  const rs = gain/loss;
+  return 100 - (100/(1+rs));
+}
+
+/* ========= ENRICH ========= */
+async function enrich(tokens){
+  /* 1) CMC */
+  const quotes = await cmcQuotesBySymbols(tokens.map(t=>t.symbol));
   tokens.forEach(t=>{
     const q = quotes[t.symbol.toUpperCase()];
     const usd = q?.quote?.USD;
@@ -138,58 +192,135 @@ async function enrich(tokens){
       t.price = usd.price ?? null;
       t.mc    = usd.market_cap ?? null;
       t.rank  = q.cmc_rank ?? null;
-
       t.d24   = usd.percent_change_24h ?? null;
       t.d7    = usd.percent_change_7d ?? null;
       t.d30   = usd.percent_change_30d ?? null;
-      // t.d1y : non garanti par CMC free → on laisse null
-
       t.volume_24h = usd.volume_24h ?? null;
       t.circulating_supply = q.circulating_supply ?? null;
       t.total_supply = q.total_supply ?? null;
       t.max_supply   = q.max_supply ?? null;
       t.fdv = usd.fully_diluted_market_cap ?? null;
-
       t.vol_mc_24 = (t.volume_24h && t.mc) ? (t.volume_24h / t.mc * 100) : null;
-    }else{
+    } else {
       t.price=t.mc=t.rank=t.d24=t.d7=t.d30=t.volume_24h=t.fdv=null;
       t.circulating_supply=t.total_supply=t.max_supply=null;
       t.vol_mc_24=null;
     }
-
-    // champs NON gérés ici (pas d’OHLCV côté CMC free):
+    // placeholders qui seront complétés par klines/llama
     t.rsi_d=null; t.rsi_h4=null;
-    t.ath=null; t.ath_date=null; t.ath_mc=null; t.x_ath_mc=null; t.price_target_ath_mc=null;
+    t.ath=null; t.ath_date=null;
     t.vol7_avg=null; t.vol30_avg=null; t.var_vol_7_over_30=null; t.vol7_tvl=null;
+    t.ath_mc=null; t.x_ath_mc=null; t.price_target_ath_mc=null;
+    t.tvl=null; t.tvl_source=null; t.mc_tvl=null;
   });
 
-  // 4.2 TVL
+  /* 2) TVL (DeFiLlama) */
   for(const t of tokens){
-    const { tvl, source } = await matchTVL(t.symbol);
-    t.tvl = tvl; t.tvl_source = source;
-    t.mc_tvl = (t.mc && t.tvl) ? (t.mc / t.tvl) : null;
+    try{
+      const { tvl, source } = await matchTVL(t.symbol);
+      t.tvl = tvl; t.tvl_source = source;
+      t.mc_tvl = (t.mc && t.tvl) ? (t.mc / t.tvl) : null;
+    }catch{ t.tvl=null; t.tvl_source=null; t.mc_tvl=null; }
     await sleep(120);
   }
 
-  // 4.3 Arrondis doux
+  /* 3) Klines par venue → RSI/ATH/vol7/30 */
+  for(const t of tokens){
+    try{
+      const venue = t.venue || '';
+      // On repart du "asset" d'origine ? Ici on n'a que symbol → on reconstitue le form exchange:symbol spot
+      // Hypothèse: la colonne asset utilisait déjà SYMBOLUSDT. On l'a normalisé; pour klines on passe rawSymbol = SYMBOL + 'USDT' si manquant.
+      let rawSymbol = t.symbol.toUpperCase();
+      if(!/(USDT|USDC|USD)$/.test(rawSymbol)) rawSymbol += 'USDT';
+
+      const daily = await fetchKlines(venue, rawSymbol);
+      if(daily && daily.length){
+        const closes = daily.map(r=>+r.c).filter(Number.isFinite);
+        const vols   = daily.map(r=>+r.v).filter(Number.isFinite);
+
+        // RSI D
+        t.rsi_d = computeRSI(closes.slice(-120), 14);
+
+        // ATH price + date (sur l'horizon récupéré)
+        let ath = -Infinity, athTs = null;
+        for(const r of daily){ if(r.h > ath){ ath = r.h; athTs = r.t; } }
+        t.ath = Number.isFinite(ath) ? ath : null;
+        t.ath_date = (athTs!=null) ? new Date(athTs).toISOString().slice(0,10) : null;
+
+        // Vols 7j / 30j
+        const last7 = vols.slice(-7);
+        const last30= vols.slice(-30);
+        const avg7  = last7.length ? last7.reduce((a,b)=>a+b,0)/last7.length : null;
+        const avg30 = last30.length? last30.reduce((a,b)=>a+b,0)/last30.length: null;
+        t.vol7_avg = avg7;
+        t.vol30_avg = avg30;
+        t.var_vol_7_over_30 = (avg7 && avg30) ? (avg7/avg30) : null;
+        t.vol7_tvl = (avg7 && t.tvl) ? (avg7 / t.tvl * 100) : null;
+
+        // RSI H4 (optionnel via seconde requête 4h)
+        try{
+          let h4rows = [];
+          if(venue.toUpperCase()==='BINANCE'){
+            const url = `https://api.binance.com/api/v3/klines?symbol=${rawSymbol}&interval=4h&limit=500`;
+            const data = await jget(url, `BINANCE klines 4h ${rawSymbol}`);
+            h4rows = (data||[]).map(a=>+a[4]).filter(Number.isFinite);
+          } else if(venue.toUpperCase()==='MEXC'){
+            const url = `https://api.mexc.com/api/v3/klines?symbol=${rawSymbol}&interval=4h&limit=500`;
+            const data = await jget(url, `MEXC klines 4h ${rawSymbol}`);
+            h4rows = (data||[]).map(a=>+a[4]).filter(Number.isFinite);
+          } else if(venue.toUpperCase()==='BYBIT'){
+            const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${rawSymbol}&interval=240&limit=500`;
+            const data = await jget(url, `BYBIT klines 4h ${rawSymbol}`);
+            const list = data?.result?.list || [];
+            h4rows = list.map(a=>+a[4]).reverse().filter(Number.isFinite);
+          } else if(venue.toUpperCase()==='OKX'){
+            let instId = rawSymbol.toUpperCase();
+            if(!instId.includes('-')) instId = instId.replace(/(USDT|USDC|USD)$/,'-$1');
+            const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=4H&limit=500`;
+            const data = await jget(url, `OKX candles 4H ${instId}`);
+            const list = data?.data || [];
+            h4rows = list.map(a=>+a[4]).reverse().filter(Number.isFinite);
+          }
+          t.rsi_h4 = computeRSI(h4rows.slice(-120), 14);
+        }catch{ t.rsi_h4 = null; }
+
+        // ATH Mcap & x
+        if(t.ath!=null && t.price!=null && t.mc!=null){
+          const ath_mc = (t.circulating_supply!=null) ? (t.ath * t.circulating_supply) : (t.mc * (t.ath / t.price));
+          t.ath_mc = ath_mc ?? null;
+          t.x_ath_mc = (ath_mc && t.mc) ? (ath_mc / t.mc) : ((t.price && t.ath) ? (t.ath / t.price) : null);
+          t.price_target_ath_mc = (t.x_ath_mc && t.price) ? (t.price * t.x_ath_mc) : null;
+        }
+      }
+    }catch(e){
+      console.warn(`Klines enrich fail ${t.symbol}:`, e.message);
+    }
+  }
+
+  // Arrondis doux
   const round = (n, d=6)=> (typeof n==='number' && isFinite(n)) ? +n.toFixed(d) : n;
   tokens.forEach(t=>{
-    ['price','mc','tvl','mc_tvl','vol_mc_24']
-      .forEach(k=> { if(t[k]!=null) t[k]=round(t[k], (k==='mc_tvl')?2:6); });
+    ['price','mc','tvl','mc_tvl','vol_mc_24',
+     'vol7_avg','vol30_avg','var_vol_7_over_30','vol7_tvl',
+     'rsi_d','rsi_h4','ath','ath_mc','x_ath_mc','price_target_ath_mc'
+    ].forEach(k=>{
+      if(t[k]!=null) t[k] = round(t[k], (k==='mc_tvl'||k==='x_ath_mc')?2: (k==='var_vol_7_over_30'?2:6));
+    });
   });
 
   return tokens;
 }
 
-/* ====== 5) MAIN ====== */
+/* ========= MAIN ========= */
 (async function main(){
+  let tokens = [];
   try{
     const base = await collectFromHistory();
-    const tokens = base.map(x=>({
+    tokens = base.map(x=>({
       symbol: x.symbol,
       venue: x.venue,
       alert_date: x.alert_date,
-      // champs enrichis
+      // champs enrichis ensuite
       price:null, d24:null, d7:null, d30:null, d1y:null,
       mc:null, tvl:null, mc_tvl:null,
       volume_24h:null, vol_mc_24:null,
@@ -208,7 +339,7 @@ async function enrich(tokens){
     console.log(`✅ data.json écrit (${enriched.length} tokens).`);
   }catch(e){
     console.error("❌ Erreur:", e);
-    const data = { updated_at: new Date().toISOString(), tokens: [] };
+    const data = { updated_at: new Date().toISOString(), tokens: tokens || [] };
     fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
     process.exit(1);
   }
