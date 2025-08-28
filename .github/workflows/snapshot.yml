@@ -18,19 +18,12 @@ jobs:
           node-version: 20
 
       - name: Install dependencies
-        run: npm install
+        run: npm install csv-parse@5
 
-      - name: Run fetch_and_build (CMC + Gecko, anti-429)
-        env:
-          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
-          SHEET_URL_ALERTE: "https://docs.google.com/spreadsheets/d/1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8/export?format=csv&gid=0&range=E:E"
-          THROTTLE_MS: "1200"          # délai min entre requêtes (ms)
-          MAX_TOKENS_PER_RUN: "40"     # limite de tokens traités par run
-          RSI_H4: "0"                  # 0 = désactivé (moins d'appels). Mets "1" si tu le veux.
-        run: node fetch_and_build.js
+      - name: Run fetch_and_build
+        run: node scripts/fetch_and_build.js
 
-      - name: Commit & push data.json (always)
-        if: always()
+      - name: Commit & push data.json
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
