@@ -49,7 +49,7 @@
   .b-good{ border-color: rgba(40,211,155,.45); box-shadow: inset 0 0 0 999px rgba(40,211,155,.09);}
   .b-info{ border-color: rgba(139,183,255,.45); box-shadow: inset 0 0 0 999px rgba(139,183,255,.10);}
   .b-warn{ border-color: rgba(255,200,87,.55); box-shadow: inset 0 0 0 999px rgba(255,200,87,.12);}
-  .b-bad{  border-color: rgba(255,107,107,.55); box-shadow: inset 0 0 0 999px rgba(255,107,107,.12);}
+  .b-bad{  border-color: rgba(255,107,107,.55); box-shadow: inset 0 6px 18px rgba(255,107,107,.14);}
 
   #cardsWrap{ display:block; margin-top:16px; }
   .grid{ display:grid; gap:var(--gap); grid-template-columns: repeat(2, minmax(0,1fr)); }
@@ -69,13 +69,16 @@
   .sig-metrics{ display:flex; gap:8px; flex-wrap:wrap; }
   .sig-divider{ border:0; border-top:1px solid var(--outline); margin:8px 0; opacity:.7 }
 
-  /* Détails repliables */
-  .details { display:none; border-top:1px solid var(--outline); padding-top:10px; }
-  .details.open { display:block; }
-  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px;margin:6px 0;}
-  .kv .k{color:var(--muted)}
   .actions{ display:flex; justify-content:flex-end; gap:8px; }
   .btn-ghost{ background:transparent; border:1px solid var(--outline); color:#cfe0ff; border-radius:10px; padding:6px 10px; cursor:pointer; font-size:12px; }
+
+  /* Panneau + Détails */
+  .details { display:none; border-top:1px solid var(--outline); padding-top:10px; }
+  .details.open { display:block; }
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px;margin:4px 0 12px;}
+  .kv .k{color:var(--muted)}
+  .kv .v{font-variant-numeric:tabular-nums}
+  .expl{color:var(--muted); font-size:12px; line-height:1.5; margin:-6px 0 10px 0;}
 </style>
 </head>
 <body>
@@ -168,7 +171,6 @@ function buildSignals(t){
   return s.sort((a,b)=>a.pri-b.pri);
 }
 function cardClass(t){
-  // règle simple : rouge si RISQUE fort, vert si au moins 2 “bons” signaux, sinon orange/neutral
   let good=0, bad=0;
   if(t.mc_tvl!=null){ if(t.mc_tvl<=3) good++; if(t.mc_tvl>12) bad++; }
   if(t.vol_mc_24!=null){ if(t.vol_mc_24>=5) good++; if(t.vol_mc_24<1) bad++; }
@@ -276,7 +278,6 @@ function renderCards(list){
     const volmc = (t.vol_mc_24!=null) ? fmtPct(t.vol_mc_24) : '—';
     const var73 = (t.var_vol_7_over_30!=null)? nf2.format(+t.var_vol_7_over_30)+'×' : '—';
 
-    // id pour toogle
     const detId = `det-${idx}-${(t.symbol||'X').toLowerCase()}`;
 
     div.innerHTML=`
@@ -305,39 +306,71 @@ function renderCards(list){
       </div>
 
       <div id="${detId}" class="details">
-        <div class="kv">
-          <div class="k">Prix</div><div class="num">${price}</div>
-          <div class="k">Δ24h / 7j / 30j</div>
-            <div class="num">${fmtPct0(t.d24)} · ${fmtPct0(t.d7)} · ${fmtPct0(t.d30)}</div>
+        <!-- Valeurs + explications -->
+        <div class="kv"><div class="k">Prix</div>
+          <div class="v">${price}</div></div>
+        <div class="expl">Prix spot en USD (CMC).</div>
 
-          <div class="k">Market Cap</div><div class="num">${mc}</div>
-          <div class="k">TVL</div><div class="num">${t.tvl!=null?money(t.tvl):'N/D'}</div>
-          <div class="k">MC/TVL</div><div class="num">${t.mc_tvl!=null?fmtNum2(t.mc_tvl):'—'}</div>
+        <div class="kv"><div class="k">Δ24h / 7j / 30j</div>
+          <div class="v">${fmtPct0(t.d24)} · ${fmtPct0(t.d7)} · ${fmtPct0(t.d30)}</div></div>
+        <div class="expl">Variations CMC. Attention, fortes accélérations récentes peuvent biaiser la lecture du RSI.</div>
 
-          <div class="k">Vol/MC (24h)</div><div class="num">${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</div>
-          <div class="k">Moy Vol 7j / 30j</div>
-            <div class="num">${t.vol7_avg!=null?money(t.vol7_avg):'—'} · ${t.vol30_avg!=null?money(t.vol30_avg):'—'}</div>
-          <div class="k">Var Vol 7j/30j</div><div class="num">${t.var_vol_7_over_30!=null?nf2.format(+t.var_vol_7_over_30)+'×':'—'}</div>
-          <div class="k">Moy Vol7j / TVL</div><div class="num">${t.vol7_tvl!=null?nf2.format(+t.vol7_tvl)+'%':'—'}</div>
+        <div class="kv"><div class="k">Market Cap</div>
+          <div class="v">${mc}</div></div>
+        <div class="expl">Capitalisation courante = prix × supply en circulation (CMC). Utile pour comparer la taille relative des projets.</div>
 
-          <div class="k">RSI Daily</div><div class="num">${t.rsi_d!=null?nf2.format(+t.rsi_d):'—'}</div>
-          <div class="k">RSI H4</div><div class="num">${t.rsi_h4!=null?nf2.format(+t.rsi_h4):'—'}</div>
+        <div class="kv"><div class="k">TVL</div>
+          <div class="v">${t.tvl!=null?money(t.tvl):'N/D'} <span class="muted">(${t.tvl_source||'—'})</span></div></div>
+        <div class="expl">Total Value Locked (DeFiLlama). Reflète l’usage on-chain (collatéraux, pools, lending…).</div>
 
-          <div class="k">ATH (prix)</div><div class="num">${t.ath!=null?('$'+nf2.format(+t.ath)):'—'} ${t.ath_date?('· '+t.ath_date):''}</div>
-          <div class="k">ATH Mcap</div><div class="num">${t.ath_mc!=null?money(t.ath_mc):'—'}</div>
-          <div class="k">x ATH Mcap</div><div class="num">${t.x_ath_mc!=null?('x'+nf1.format(+t.x_ath_mc)):'—'}</div>
-          <div class="k">Prix cible (ATH Mcap)</div><div class="num">${t.price_target_ath_mc!=null?('$'+nf2.format(+t.price_target_ath_mc)):'—'}</div>
+        <div class="kv"><div class="k">MC/TVL</div>
+          <div class="v">${t.mc_tvl!=null?fmtNum2(t.mc_tvl):'—'}</div></div>
+        <div class="expl">Ratio valorisation / usage on-chain. <strong>&lt;=3</strong> souvent perçu comme plus “value”, <strong>&gt;12</strong> = riche/tendu.</div>
 
-          <div class="k">Rank</div><div class="num">${t.rank!=null?String(t.rank):'—'}</div>
-          <div class="k">Supplies</div>
-            <div class="num">
-              circ: ${t.circulating_supply!=null?nf2.format(+t.circulating_supply):'—'}
-              · total: ${t.total_supply!=null?nf2.format(+t.total_supply):'—'}
-              · max: ${t.max_supply!=null?nf2.format(+t.max_supply):'—'}
-              · FDV: ${t.fdv!=null?money(t.fdv):'—'}
-            </div>
-          <div class="k">Source TVL</div><div class="num">${t.tvl_source||'—'}</div>
-        </div>
+        <div class="kv"><div class="k">Vol/MC (24h)</div>
+          <div class="v">${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</div></div>
+        <div class="expl">Liquidité relative. <strong>&ge;5%</strong> = bonne rotation, <strong>&lt;1%</strong> = illiquide/fragile.</div>
+
+        <div class="kv"><div class="k">Moy Vol 7j / 30j</div>
+          <div class="v">${t.vol7_avg!=null?money(t.vol7_avg):'—'} · ${t.vol30_avg!=null?money(t.vol30_avg):'—'}</div></div>
+        <div class="expl">Moyennes sur bougies daily (exchange). Indique la pression d’échange récente vs mensuelle.</div>
+
+        <div class="kv"><div class="k">Var Vol 7j/30j</div>
+          <div class="v">${t.var_vol_7_over_30!=null?nf2.format(+t.var_vol_7_over_30)+'×':'—'}</div></div>
+        <div class="expl">Accélération de volume. <strong>&ge;1.5×</strong> = regain d’intérêt/flux entrants.</div>
+
+        <div class="kv"><div class="k">Moy Vol7j / TVL</div>
+          <div class="v">${t.vol7_tvl!=null?nf2.format(+t.vol7_tvl)+'%':'—'}</div></div>
+        <div class="expl">Montre la part d’échanges récents par rapport aux fonds “bloqués”. Utile pour jauger de l’activité spéculative.</div>
+
+        <div class="kv"><div class="k">RSI Daily / H4</div>
+          <div class="v">${t.rsi_d!=null?nf2.format(+t.rsi_d):'—'} · ${t.rsi_h4!=null?nf2.format(+t.rsi_h4):'—'}</div></div>
+        <div class="expl">RSI(14). <strong>&gt;70</strong> = surachat (risque de pullback), <strong>&lt;35</strong> = survente (potentiel rebond). Le H4 donne le rythme court terme.</div>
+
+        <div class="kv"><div class="k">ATH (prix)</div>
+          <div class="v">${t.ath!=null?('$'+nf2.format(+t.ath)):'—'} ${t.ath_date?('· '+t.ath_date):''}</div></div>
+        <div class="expl">Plus haut historique (sur l’horizon récupéré via klines). À compléter si besoin avec plus d’historique.</div>
+
+        <div class="kv"><div class="k">ATH Mcap</div>
+          <div class="v">${t.ath_mc!=null?money(t.ath_mc):'—'}</div></div>
+        <div class="expl">Capitalisation implicite au prix ATH (supply circ. si disponible, sinon proportion vs MC actuelle).</div>
+
+        <div class="kv"><div class="k">x ATH Mcap</div>
+          <div class="v">${t.x_ath_mc!=null?('x'+nf1.format(+t.x_ath_mc)):'—'}</div></div>
+        <div class="expl">Multiplicateur pour revenir à la market cap ATH. Utile pour estimer le “potentiel” relatif.</div>
+
+        <div class="kv"><div class="k">Prix cible (ATH Mcap)</div>
+          <div class="v">${t.price_target_ath_mc!=null?('$'+nf2.format(+t.price_target_ath_mc)):'—'}</div></div>
+        <div class="expl">Prix théorique si la capi revenait à son ATH avec la supply actuelle (approx.).</div>
+
+        <div class="kv"><div class="k">Rank / FDV / Supplies</div>
+          <div class="v">
+            rank: ${t.rank!=null?String(t.rank):'—'} · FDV: ${t.fdv!=null?money(t.fdv):'—'} ·
+            circ: ${t.circulating_supply!=null?nf2.format(+t.circulating_supply):'—'} ·
+            total: ${t.total_supply!=null?nf2.format(+t.total_supply):'—'} ·
+            max: ${t.max_supply!=null?nf2.format(+t.max_supply):'—'}
+          </div></div>
+        <div class="expl">FDV = Fully Diluted Valuation. Attention aux gros unlocks (si connus) qui augmentent la supply en circulation.</div>
       </div>
     `;
 
@@ -352,7 +385,7 @@ function renderCards(list){
   });
 }
 
-/* ==== Data ==== */
+/* ==== Charger data.json ==== */
 async function loadData(){
   try{
     const res = await fetch('data.json?ts='+Date.now(), { cache:'no-store' });
