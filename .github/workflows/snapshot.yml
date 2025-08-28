@@ -2,28 +2,33 @@ name: Daily snapshot (Sheet → data.json)
 
 on:
   schedule:
-    - cron: "0 6 * * *"   # 06:00 UTC ≈ 08:00 Paris
-  workflow_dispatch: {}
-
-permissions:
-  contents: write   # autorise le commit via GITHUB_TOKEN
+    - cron: '0 6 * * *'   # 06:00 UTC ≈ 08:00 Paris
+  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0, persist-credentials: true }
+      - name: Checkout repo
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v4
-        with: { node-version: "20" }
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
 
-      - name: Generate data.json from Google Sheet (+CMC)
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run fetch_and_build
         env:
-          CMC_API_KEY: ${{ secrets.CMC_API_KEY }}
+          SHEET_URL_ALERTE: "https://docs.google.com/spreadsheets/d/1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8/export?format=csv&gid=0&range=E:E"
         run: node fetch_and_build.js
 
-      - uses: stefanzweifel/git-auto-commit-action@v5
-        with:
-          commit_message: "chore: daily snapshot (Sheet → data.json)"
-          file_pattern: data.json
+      - name: Commit & push data.json
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add data.json
+          git commit -m "Daily snapshot" || echo "No changes"
+          git push
