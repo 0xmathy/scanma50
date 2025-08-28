@@ -19,7 +19,7 @@ const MAX_TOKENS_PER_RUN = Number(process.env.MAX_TOKENS_PER_RUN || 50);
 const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
 
 /* ========= UTILS ========= */
-function normalizeSymbol(asset){
+function normalizeSymbolForCMC(asset){
   if(!asset) return "";
   const core = String(asset).split(':').pop().trim(); // "BINANCE:AVAXUSDT" → "AVAXUSDT"
   return core.replace(/USDT|USD|USDC|PERP|_PERP|\/.*$/i,"").trim().toUpperCase();
@@ -28,6 +28,11 @@ function parseVenue(asset){
   if(!asset) return "";
   const parts = String(asset).split(':');
   return parts.length>1 ? parts[0].trim().toUpperCase() : "";
+}
+function parseAssetPair(asset){
+  if(!asset) return "";
+  const parts = String(asset).split(':');
+  return parts.length>1 ? parts[1].trim().toUpperCase() : String(asset).trim().toUpperCase();
 }
 function ymdParis(d=new Date()){
   const dt = (d instanceof Date) ? d : new Date(d);
@@ -62,22 +67,29 @@ async function collectFromHistory(){
   for(const row of recs){
     const asset = row["asset"] || row["Asset"] || row["ASSET"];
     if(!asset) continue;
-    const symbol = normalizeSymbol(asset);
-    if(!symbol) continue;
+
+    const symbolCMC = normalizeSymbolForCMC(asset);
+    if(!symbolCMC) continue;
 
     const dk = (row["DateKey"] || row["datekey"] || row["date"] || "").toString().slice(0,10);
     if(dk && dk < cutoffYMD) continue;
 
-    if(seen.has(symbol)) continue;
-    seen.add(symbol);
+    if(seen.has(symbolCMC)) continue;
+    seen.add(symbolCMC);
 
-    out.push({ symbol, venue: parseVenue(asset), alert_date: dk || ymdParis(today) });
+    out.push({
+      symbol_cmc: symbolCMC,                  // pour CMC mapping
+      venue: parseVenue(asset),               // ex. BINANCE / MEXC / BYBIT / OKX
+      asset_pair: parseAssetPair(asset),      // ex. AVAXUSDT (ou ATHUSDT, etc.)
+      alert_date: dk || ymdParis(today)
+    });
   }
   if(out.length > MAX_TOKENS_PER_RUN){
     console.warn(`⚠️  Trop de tokens (${out.length}) → on limite à ${MAX_TOKENS_PER_RUN}`);
   }
-  console.log(`✅ ${Math.min(out.length, MAX_TOKENS_PER_RUN)} tokens (history ≤2j)`);
-  return out.slice(0, MAX_TOKENS_PER_RUN);
+  const sliced = out.slice(0, MAX_TOKENS_PER_RUN);
+  console.log(`✅ ${sliced.length} tokens (history ≤2j)`);
+  return sliced;
 }
 
 /* ========= CMC (market) ========= */
@@ -122,47 +134,107 @@ async function matchTVL(symbol){
 }
 
 /* ========= CEX KLINES (OHLCV) ========= */
-// Normalisation: retourne [{t, o, h, l, c, v}, ...] (t en ms)
-async function fetchKlines(venue, rawSymbol){
-  if(!venue || !rawSymbol) return [];
+// output: [{t, o, h, l, c, v}, ...] (t en ms)
+// essaie la pair brute (sheet) puis fallback (USDT/USDC/USD). OKX nécessite "AVAX-USDT".
+async function fetchKlinesDaily(venue, assetPair){
+  if(!venue) return [];
   const v = venue.toUpperCase();
-  let rows = [];
 
-  try{
-    if(v === 'BINANCE'){
-      const symbol = rawSymbol.toUpperCase().replace(/[^A-Z0-9]/g,'');
-      const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=365`;
-      const data = await jget(url, `BINANCE klines ${symbol}`);
-      rows = (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
-    } else if(v === 'MEXC'){
-      const symbol = rawSymbol.toUpperCase().replace(/[^A-Z0-9]/g,'');
-      const url = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=365`;
-      const data = await jget(url, `MEXC klines ${symbol}`);
-      rows = (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
-    } else if(v === 'BYBIT'){
-      const symbol = rawSymbol.toUpperCase().replace(/[^A-Z0-9]/g,'');
-      const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=D&limit=365`;
-      const data = await jget(url, `BYBIT klines ${symbol}`);
-      const list = data?.result?.list || [];
-      rows = list.map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]})).reverse(); // Bybit renvoie décroissant
-    } else if(v === 'OKX'){
-      // OKX instId: AVAX-USDT (avec tiret). On insère un '-' avant USDT/USDC/USD si absent.
-      let instId = rawSymbol.toUpperCase();
-      if(!instId.includes('-')){
-        instId = instId.replace(/(USDT|USDC|USD)$/,'-$1');
-      }
-      const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=1D&limit=365`;
-      const data = await jget(url, `OKX candles ${instId}`);
-      const list = data?.data || [];
-      rows = list.map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]})).reverse(); // OKX décroissant
-    } else {
-      return [];
+  // helpers
+  const asOKX = (p)=> p.includes('-') ? p : p.replace(/(USDT|USDC|USD)$/,'-$1');
+  const tryList = (pair)=>{
+    const base = pair.replace(/[^A-Z0-9-]/g,'').toUpperCase();
+    const variants = new Set([base]);
+    if(!/(USDT|USDC|USD)$/.test(base)){
+      variants.add(base+'USDT'); variants.add(base+'USDC'); variants.add(base+'USD');
+    }else{
+      // déjà suffixée : tester aussi USDT/USDC/USD
+      variants.add(base.replace(/(USDT|USDC|USD)$/,'USDT'));
+      variants.add(base.replace(/(USDT|USDC|USD)$/,'USDC'));
+      variants.add(base.replace(/(USDT|USDC|USD)$/,'USD'));
     }
-  }catch(e){
-    console.warn(`Klines ${venue}:${rawSymbol} → ${e.message}`);
-    return [];
+    return Array.from(variants);
+  };
+
+  const candidates = tryList(assetPair||"");
+
+  for(const cand of candidates){
+    try{
+      if(v === 'BINANCE'){
+        const symbol = cand.replace(/[^A-Z0-9]/g,'');
+        const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=1000`;
+        const data = await jget(url, `BINANCE klines ${symbol}`);
+        const rows = (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
+        if(rows.length) return rows;
+      } else if(v === 'MEXC'){
+        const symbol = cand.replace(/[^A-Z0-9]/g,'');
+        const url = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=1d&limit=1000`;
+        const data = await jget(url, `MEXC klines ${symbol}`);
+        const rows = (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
+        if(rows.length) return rows;
+      } else if(v === 'BYBIT'){
+        const symbol = cand.replace(/[^A-Z0-9]/g,'');
+        const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=D&limit=1000`;
+        const data = await jget(url, `BYBIT klines ${symbol}`);
+        const list = data?.result?.list || [];
+        const rows = list.map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]})).reverse();
+        if(rows.length) return rows;
+      } else if(v === 'OKX'){
+        let instId = asOKX(cand);
+        const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=1D&limit=1000`;
+        const data = await jget(url, `OKX candles ${instId}`);
+        const list = data?.data || [];
+        const rows = list.map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]})).reverse();
+        if(rows.length) return rows;
+      }
+    }catch(e){
+      // try next variant
+    }
   }
-  return rows.filter(r => Number.isFinite(r.c) && Number.isFinite(r.v));
+  return [];
+}
+
+async function fetchClosesH4(venue, assetPair){
+  if(!venue) return [];
+  const v = venue.toUpperCase();
+
+  const asOKX = (p)=> p.includes('-') ? p : p.replace(/(USDT|USDC|USD)$/,'-$1');
+  const variants = [assetPair].filter(Boolean);
+
+  for(const candRaw of variants){
+    try{
+      if(v === 'BINANCE'){
+        const symbol = candRaw.replace(/[^A-Z0-9]/g,'').toUpperCase();
+        const url = `https://api.binance.com/api/v3/klines?symbol=${symbol}&interval=4h&limit=1000`;
+        const data = await jget(url, `BINANCE klines 4h ${symbol}`);
+        const arr = (data||[]).map(a=>+a[4]).filter(Number.isFinite);
+        if(arr.length) return arr;
+      } else if(v === 'MEXC'){
+        const symbol = candRaw.replace(/[^A-Z0-9]/g,'').toUpperCase();
+        const url = `https://api.mexc.com/api/v3/klines?symbol=${symbol}&interval=4h&limit=1000`;
+        const data = await jget(url, `MEXC klines 4h ${symbol}`);
+        const arr = (data||[]).map(a=>+a[4]).filter(Number.isFinite);
+        if(arr.length) return arr;
+      } else if(v === 'BYBIT'){
+        const symbol = candRaw.replace(/[^A-Z0-9]/g,'').toUpperCase();
+        const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${symbol}&interval=240&limit=1000`;
+        const data = await jget(url, `BYBIT klines 4h ${symbol}`);
+        const list = data?.result?.list || [];
+        const arr = list.map(a=>+a[4]).reverse().filter(Number.isFinite);
+        if(arr.length) return arr;
+      } else if(v === 'OKX'){
+        let instId = asOKX(candRaw.toUpperCase());
+        const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=4H&limit=1000`;
+        const data = await jget(url, `OKX candles 4H ${instId}`);
+        const list = data?.data || [];
+        const arr = list.map(a=>+a[4]).reverse().filter(Number.isFinite);
+        if(arr.length) return arr;
+      }
+    }catch(e){
+      // try next
+    }
+  }
+  return [];
 }
 
 function computeRSI(closes, period=14){
@@ -184,9 +256,9 @@ function computeRSI(closes, period=14){
 /* ========= ENRICH ========= */
 async function enrich(tokens){
   /* 1) CMC */
-  const quotes = await cmcQuotesBySymbols(tokens.map(t=>t.symbol));
+  const quotes = await cmcQuotesBySymbols(tokens.map(t=>t.symbol_cmc));
   tokens.forEach(t=>{
-    const q = quotes[t.symbol.toUpperCase()];
+    const q = quotes[t.symbol_cmc?.toUpperCase()];
     const usd = q?.quote?.USD;
     if(usd){
       t.price = usd.price ?? null;
@@ -206,7 +278,7 @@ async function enrich(tokens){
       t.circulating_supply=t.total_supply=t.max_supply=null;
       t.vol_mc_24=null;
     }
-    // placeholders qui seront complétés par klines/llama
+    // placeholders
     t.rsi_d=null; t.rsi_h4=null;
     t.ath=null; t.ath_date=null;
     t.vol7_avg=null; t.vol30_avg=null; t.var_vol_7_over_30=null; t.vol7_tvl=null;
@@ -217,37 +289,32 @@ async function enrich(tokens){
   /* 2) TVL (DeFiLlama) */
   for(const t of tokens){
     try{
-      const { tvl, source } = await matchTVL(t.symbol);
+      const { tvl, source } = await matchTVL(t.symbol_cmc);
       t.tvl = tvl; t.tvl_source = source;
       t.mc_tvl = (t.mc && t.tvl) ? (t.mc / t.tvl) : null;
     }catch{ t.tvl=null; t.tvl_source=null; t.mc_tvl=null; }
     await sleep(120);
   }
 
-  /* 3) Klines par venue → RSI/ATH/vol7/30 */
+  /* 3) Klines → RSI/ATH/vol7/30 */
   for(const t of tokens){
     try{
-      const venue = t.venue || '';
-      // On repart du "asset" d'origine ? Ici on n'a que symbol → on reconstitue le form exchange:symbol spot
-      // Hypothèse: la colonne asset utilisait déjà SYMBOLUSDT. On l'a normalisé; pour klines on passe rawSymbol = SYMBOL + 'USDT' si manquant.
-      let rawSymbol = t.symbol.toUpperCase();
-      if(!/(USDT|USDC|USD)$/.test(rawSymbol)) rawSymbol += 'USDT';
-
-      const daily = await fetchKlines(venue, rawSymbol);
+      const daily = await fetchKlinesDaily(t.venue, t.asset_pair);
       if(daily && daily.length){
         const closes = daily.map(r=>+r.c).filter(Number.isFinite);
+        const highs  = daily.map(r=>+r.h).filter(Number.isFinite);
         const vols   = daily.map(r=>+r.v).filter(Number.isFinite);
 
         // RSI D
-        t.rsi_d = computeRSI(closes.slice(-120), 14);
+        t.rsi_d = computeRSI(closes.slice(-200), 14);
 
-        // ATH price + date (sur l'horizon récupéré)
-        let ath = -Infinity, athTs = null;
-        for(const r of daily){ if(r.h > ath){ ath = r.h; athTs = r.t; } }
+        // ATH (prix + date) sur l'horizon récupéré (1000 jours max)
+        let ath = -Infinity, athTs=null;
+        for(const r of daily){ if(r.h>ath){ ath=r.h; athTs=r.t; } }
         t.ath = Number.isFinite(ath) ? ath : null;
         t.ath_date = (athTs!=null) ? new Date(athTs).toISOString().slice(0,10) : null;
 
-        // Vols 7j / 30j
+        // Moy. volumes 7j / 30j et Var
         const last7 = vols.slice(-7);
         const last30= vols.slice(-30);
         const avg7  = last7.length ? last7.reduce((a,b)=>a+b,0)/last7.length : null;
@@ -257,43 +324,24 @@ async function enrich(tokens){
         t.var_vol_7_over_30 = (avg7 && avg30) ? (avg7/avg30) : null;
         t.vol7_tvl = (avg7 && t.tvl) ? (avg7 / t.tvl * 100) : null;
 
-        // RSI H4 (optionnel via seconde requête 4h)
+        // RSI H4
         try{
-          let h4rows = [];
-          if(venue.toUpperCase()==='BINANCE'){
-            const url = `https://api.binance.com/api/v3/klines?symbol=${rawSymbol}&interval=4h&limit=500`;
-            const data = await jget(url, `BINANCE klines 4h ${rawSymbol}`);
-            h4rows = (data||[]).map(a=>+a[4]).filter(Number.isFinite);
-          } else if(venue.toUpperCase()==='MEXC'){
-            const url = `https://api.mexc.com/api/v3/klines?symbol=${rawSymbol}&interval=4h&limit=500`;
-            const data = await jget(url, `MEXC klines 4h ${rawSymbol}`);
-            h4rows = (data||[]).map(a=>+a[4]).filter(Number.isFinite);
-          } else if(venue.toUpperCase()==='BYBIT'){
-            const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${rawSymbol}&interval=240&limit=500`;
-            const data = await jget(url, `BYBIT klines 4h ${rawSymbol}`);
-            const list = data?.result?.list || [];
-            h4rows = list.map(a=>+a[4]).reverse().filter(Number.isFinite);
-          } else if(venue.toUpperCase()==='OKX'){
-            let instId = rawSymbol.toUpperCase();
-            if(!instId.includes('-')) instId = instId.replace(/(USDT|USDC|USD)$/,'-$1');
-            const url = `https://www.okx.com/api/v5/market/candles?instId=${instId}&bar=4H&limit=500`;
-            const data = await jget(url, `OKX candles 4H ${instId}`);
-            const list = data?.data || [];
-            h4rows = list.map(a=>+a[4]).reverse().filter(Number.isFinite);
-          }
-          t.rsi_h4 = computeRSI(h4rows.slice(-120), 14);
+          const h4closes = await fetchClosesH4(t.venue, t.asset_pair);
+          t.rsi_h4 = computeRSI(h4closes.slice(-300), 14);
         }catch{ t.rsi_h4 = null; }
 
         // ATH Mcap & x
         if(t.ath!=null && t.price!=null && t.mc!=null){
-          const ath_mc = (t.circulating_supply!=null) ? (t.ath * t.circulating_supply) : (t.mc * (t.ath / t.price));
+          const ath_mc = (t.circulating_supply!=null)
+            ? (t.ath * t.circulating_supply)
+            : (t.mc * (t.ath / t.price));
           t.ath_mc = ath_mc ?? null;
           t.x_ath_mc = (ath_mc && t.mc) ? (ath_mc / t.mc) : ((t.price && t.ath) ? (t.ath / t.price) : null);
           t.price_target_ath_mc = (t.x_ath_mc && t.price) ? (t.price * t.x_ath_mc) : null;
         }
       }
     }catch(e){
-      console.warn(`Klines enrich fail ${t.symbol}:`, e.message);
+      console.warn(`Klines enrich fail ${t.symbol_cmc}:`, e.message);
     }
   }
 
@@ -304,7 +352,7 @@ async function enrich(tokens){
      'vol7_avg','vol30_avg','var_vol_7_over_30','vol7_tvl',
      'rsi_d','rsi_h4','ath','ath_mc','x_ath_mc','price_target_ath_mc'
     ].forEach(k=>{
-      if(t[k]!=null) t[k] = round(t[k], (k==='mc_tvl'||k==='x_ath_mc')?2: (k==='var_vol_7_over_30'?2:6));
+      if(t[k]!=null) t[k] = round(t[k], (k==='mc_tvl'||k==='x_ath_mc'||k==='var_vol_7_over_30')?2:6);
     });
   });
 
@@ -317,9 +365,12 @@ async function enrich(tokens){
   try{
     const base = await collectFromHistory();
     tokens = base.map(x=>({
-      symbol: x.symbol,
+      symbol: x.symbol_cmc,         // pour compat UI ancienne (colonne "symbol")
+      symbol_cmc: x.symbol_cmc,
       venue: x.venue,
+      asset_pair: x.asset_pair,
       alert_date: x.alert_date,
+
       // champs enrichis ensuite
       price:null, d24:null, d7:null, d30:null, d1y:null,
       mc:null, tvl:null, mc_tvl:null,
