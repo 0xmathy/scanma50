@@ -6,11 +6,20 @@ const fs = require('fs');
 const { parse } = require('csv-parse/sync');
 
 /* ========= CONFIG ========= */
-const SHEET_URL_HISTORY =
-  "https://docs.google.com/spreadsheets/d/1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8/export?format=csv&gid=916004394";
+// IMPORTANT : Assure-toi que le Sheet est en "Anyone with the link: Viewer"
+const DOC_ID = '1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8';
+const GID_HISTORY = '916004394';
+const GID_ALERTES = '0';
 
-const SHEET_URL_ALERTES =
-  "https://docs.google.com/spreadsheets/d/1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8/export?format=csv&gid=0";
+// URLs "export" (stables) + fallback "pub"
+const SHEET_URL_HISTORY = {
+  primary: `https://docs.google.com/spreadsheets/d/${DOC_ID}/export?format=csv&gid=${GID_HISTORY}`,
+  fallback: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=916004394&single=true&output=csv"
+};
+const SHEET_URL_ALERTES = {
+  primary: `https://docs.google.com/spreadsheets/d/${DOC_ID}/export?format=csv&gid=${GID_ALERTES}`,
+  fallback: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=0&single=true&output=csv"
+};
 
 const CMC_KEY  = process.env.CMC_API_KEY || "";
 const CMC_BASE = "https://pro-api.coinmarketcap.com/v1";
@@ -43,11 +52,25 @@ function ymdParis(d=new Date()){
             .formatToParts(dt).reduce((o,p)=> (o[p.type]=p.value, o), {});
   return `${p.year}-${p.month}-${p.day}`;
 }
-async function fetchCsv(url, label){
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
-  const text = await res.text();
-  return parse(text, { columns:true, skip_empty_lines:true });
+async function fetchCsv(urlOrObj, label){
+  // urlOrObj peut être string (URL directe) ou {primary, fallback}
+  const doFetch = async (u) => {
+    const res = await fetch(u);
+    if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
+    const text = await res.text();
+    return parse(text, { columns:true, skip_empty_lines:true });
+  };
+
+  if(typeof urlOrObj === 'string'){
+    return doFetch(urlOrObj);
+  } else {
+    try {
+      return await doFetch(urlOrObj.primary);
+    } catch(e){
+      console.warn(`[${label}] primary failed: ${e.message} → trying fallback…`);
+      return await doFetch(urlOrObj.fallback);
+    }
+  }
 }
 async function jget(url, label, opts={}){
   await sleep(THROTTLE_MS);
@@ -110,7 +133,7 @@ async function collectFromAlertes(){
     const asset = row["asset"] || row["Asset"] || row["ASSET"];
     if(!asset) continue;
 
-    // on filtre : uniquement les paires USDT (crypto spot)
+    // filtre : uniquement paires USDT (crypto spot)
     if(!/USDT/i.test(asset)) continue;
 
     const symbolCMC = normalizeSymbolForCMC(asset);
