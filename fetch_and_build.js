@@ -1,4 +1,4 @@
-// scripts/fetch_and_build.js
+// fetch_and_build.js
 // Sheet (history ≤2j + alertes USDT) → CMC (market + info) + DeFiLlama (TVL + meta) + CEX Klines (RSI/ATH/vol7/30) → data.json
 // Node 20 (fetch natif). CommonJS.
 
@@ -564,6 +564,10 @@ async function enrich(tokens){
     }));
 
     const enriched = await enrich(tokens);
+
+    // 🔽 Tri par date décroissante (plus récents en haut)
+    enriched.sort((a,b) => (b.alert_date || "").localeCompare(a.alert_date || ""));
+
     const data = { updated_at: new Date().toISOString(), tokens: enriched };
     fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
     console.log(`✅ data.json écrit (${enriched.length} tokens).`);
