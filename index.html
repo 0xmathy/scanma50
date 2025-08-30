@@ -1,425 +1,572 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Scan MA50 v1.2 — Screener</title>
-<style>
-  :root{
-    --bg:#0b1016;--panel:#0f1422;--panel-2:#121a2b;--text:#e9eef5;--muted:#9aa7b8;
-    --green:#28d39b;--red:#ff6b6b;--amber:#ffc857;--blue:#8bb7ff;--outline:#1c2742;
-    --chip:#0d1a2a; --chip-bd:#223052;
-    --radius:14px; --gap:14px;
-  }
-  *{box-sizing:border-box}
-  body{margin:0;background:linear-gradient(180deg,#0a0f19,#0b1016);color:var(--text);font:16px/1.55 system-ui,-apple-system,Segoe UI,Roboto,Ubuntu}
-  .wrap{max-width:1200px;margin:28px auto;padding:0 16px}
-  header{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px}
-  .title{font-weight:800;font-size:22px;letter-spacing:.2px}
-  .toolbar{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
-  .toolbar input,.btn{background:var(--panel-2);color:var(--text);border:1px solid var(--outline);border-radius:12px;padding:8px 12px}
-  .btn{cursor:pointer}
-  .note{color:var(--muted);font-size:12px;margin:8px 0 16px}
-  #debug{display:none;margin:10px 0;padding:10px;border:1px dashed #ff6b6b;color:#ffb3b3;background:#381e1e;border-radius:12px;white-space:pre-wrap}
-  #debug.show{display:block}
+// scripts/fetch_and_build.js
+// Sheet (history ≤2j + alertes USDT/USDC) → CMC (market + info) + DeFiLlama (TVL + meta) + CEX Klines (RSI/ATH/vol7/30) → data.json
+// Node 20 (fetch natif). CommonJS.
 
-  .card{background:var(--panel);border:1px solid var(--outline);border-radius:var(--radius);overflow:hidden}
-  .table-scroller{width:100%;overflow:auto}
-  table{width:100%;border-collapse:separate;border-spacing:0; min-width:1280px;}
-  thead th{position:sticky;top:0;background:linear-gradient(180deg,var(--panel),var(--panel-2));
-    color:#cfe0ff;text-align:left;font-weight:700;font-size:12px;text-transform:uppercase;
-    letter-spacing:.5px;border-bottom:1px solid var(--outline);padding:10px 12px}
-  tbody td{padding:10px 12px;border-bottom:1px solid #0e1525; vertical-align:middle;}
-  tbody tr:hover{background:rgba(255,255,255,.03)}
-  .token{display:flex;align-items:center;gap:10px}
-  .logo{width:22px;height:22px;border-radius:7px;background:linear-gradient(135deg,#1f2846,#2a3f6f)}
-  .sym{font-weight:800}
-  .muted{color:var(--muted)}
-  .num{font-variant-numeric:tabular-nums; white-space:nowrap;}
-  .t-good{color:var(--green)} .t-warn{color:var(--amber)} .t-bad{color:var(--red)}
-  @media (max-width: 1200px){ .col-optional{ display:none; } }
+const fs = require('fs');
+const { parse } = require('csv-parse/sync');
 
-  .chips{display:flex;gap:8px;flex-wrap:wrap}
-  .chip{font-size:12px; padding:6px 8px; border-radius:999px;background:var(--chip); border:1px solid var(--chip-bd); color:#dbe6ff;}
+/* ========= CONFIG ========= */
+// IMPORTANT : Le Sheet doit être partagé "Anyone with the link: Viewer"
+const DOC_ID = '1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8';
+const GID_HISTORY = '916004394';
+const GID_ALERTES = '0';
 
-  .badges{display:flex;gap:8px;flex-wrap:wrap}
-  .badge{font-size:12px; line-height:1; padding:7px 10px; border-radius:10px;
-    border:1px solid var(--outline); background:rgba(255,255,255,.03); color:var(--text);
-    white-space:nowrap; font-weight:600;}
-  .b-good{ border-color: rgba(40,211,155,.45); box-shadow: inset 0 0 0 999px rgba(40,211,155,.09);}
-  .b-info{ border-color: rgba(139,183,255,.45); box-shadow: inset 0 0 0 999px rgba(139,183,255,.10);}
-  .b-warn{ border-color: rgba(255,200,87,.55); box-shadow: inset 0 0 0 999px rgba(255,200,87,.12);}
-  .b-bad{  border-color: rgba(255,107,107,.55); box-shadow: inset 0 6px 18px rgba(255,107,107,.14);}
+// URLs "export" + fallback "pub"
+const SHEET_URL_HISTORY = {
+  primary: `https://docs.google.com/spreadsheets/d/${DOC_ID}/export?format=csv&gid=${GID_HISTORY}`,
+  fallback: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=916004394&single=true&output=csv"
+};
+const SHEET_URL_ALERTES = {
+  primary: `https://docs.google.com/spreadsheets/d/${DOC_ID}/export?format=csv&gid=${GID_ALERTES}`,
+  fallback: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=0&single=true&output=csv"
+};
 
-  #cardsWrap{ display:block; margin-top:16px; }
-  .grid{ display:grid; gap:var(--gap); grid-template-columns: repeat(2, minmax(0,1fr)); }
-  @media (min-width:1200px){ .grid{ grid-template-columns: repeat(3, minmax(0,1fr)); } }
-  @media (max-width:800px){ .grid{ grid-template-columns: 1fr; } }
+// Venues crypto autorisées (évite les actions/forex) — ajout COINBASE
+const ALLOWED_VENUES = ['BINANCE','MEXC','BYBIT','KUCOIN','CRYPTO','COINBASE'];
 
-  .sig-card{background:var(--panel); border:1px solid var(--outline); border-radius:16px;
-    padding:14px; box-shadow:0 6px 18px rgba(0,0,0,.28); display:flex; flex-direction:column; gap:10px;}
-  .sig-card.good { border-color: rgba(40,211,155,.5); box-shadow:0 6px 18px rgba(40,211,155,.12); }
-  .sig-card.warn { border-color: rgba(255,200,87,.5);  box-shadow:0 6px 18px rgba(255,200,87,.12); }
-  .sig-card.bad  { border-color: rgba(255,107,107,.5); box-shadow:0 6px 18px rgba(255,107,107,.14); }
+const CMC_KEY  = process.env.CMC_API_KEY || "";
+const CMC_BASE = "https://pro-api.coinmarketcap.com/v1";
+const LLAMA_BASE = "https://api.llama.fi";
 
-  .sig-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; }
-  .sig-title{ font-weight:800; font-size:16px; letter-spacing:.2px; }
-  .sig-price{ font-weight:700; }
-  .sig-sub{ color:var(--muted); font-size:12px; }
-  .sig-metrics{ display:flex; gap:8px; flex-wrap:wrap; }
-  .sig-divider{ border:0; border-top:1px solid var(--outline); margin:8px 0; opacity:.7 }
+const THROTTLE_MS = Number(process.env.THROTTLE_MS || 450);
+const MAX_TOKENS_PER_RUN = Number(process.env.MAX_TOKENS_PER_RUN || 50);
+const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
 
-  .actions{ display:flex; justify-content:flex-end; gap:8px; }
-  .btn-ghost{ background:transparent; border:1px solid var(--outline); color:#cfe0ff; border-radius:10px; padding:6px 10px; cursor:pointer; font-size:12px; }
-
-  /* Panneau + Détails */
-  .details { display:none; border-top:1px solid var(--outline); padding-top:10px; }
-  .details.open { display:block; }
-  .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:14px;margin:4px 0 12px;}
-  .kv .k{color:var(--muted)}
-  .kv .v{font-variant-numeric:tabular-nums}
-  .expl{color:var(--muted); font-size:12px; line-height:1.5; margin:-6px 0 10px 0;}
-</style>
-</head>
-<body>
-<div class="wrap">
-  <header>
-    <div class="title">Scan MA50 v1.2 — Screener</div>
-    <div class="toolbar">
-      <input id="search" placeholder="Rechercher un token…" />
-      <button id="btnRefresh" class="btn">↻ Rafraîchir</button>
-      <label><input type="checkbox" id="autoToggle"> Auto-refresh (60s)</label>
-    </div>
-  </header>
-  <div class="note" id="lastupdate">Chargement…</div>
-  <div id="debug"></div>
-
-  <div class="card"><div class="table-scroller">
-    <table id="screener">
-      <thead><tr>
-        <th>Token</th>
-        <th>Date</th>
-        <th>Prix</th>
-        <th>Δ24h</th>
-        <th class="col-optional">Δ7j</th>
-        <th class="col-optional">Δ30j</th>
-        <th>Market Cap</th>
-        <th>TVL</th>
-        <th>MC/TVL</th>
-        <th class="col-optional">Vol/MC (24h)</th>
-        <th class="col-optional">Moy Vol 7j</th>
-        <th class="col-optional">Moy Vol 30j</th>
-        <th class="col-optional">Var Vol 7j/30j</th>
-        <th>RSI D</th>
-        <th class="col-optional">RSI H4</th>
-        <th class="col-optional">ATH (prix)</th>
-        <th>x ATH Mcap</th>
-      </tr></thead>
-      <tbody></tbody>
-    </table>
-    <div class="note" id="emptyMsg" style="display:none;padding:10px;">Aucune ligne</div>
-  </div></div>
-
-  <div id="cardsWrap"><div class="grid" id="cardsGrid"></div></div>
-</div>
-
-<script>
-/* ==== Debug ==== */
-const debugBox = document.getElementById('debug');
-function debug(msg){ try{ debugBox.classList.add('show'); debugBox.textContent += (debugBox.textContent? '\\n':'') + msg; console.error(msg);}catch(_){} }
-window.addEventListener('error', e=> debug('JS Error: '+(e.error?.message||e.message)));
-window.addEventListener('unhandledrejection', e=> debug('Promise Rejection: '+(e.reason?.message||e.reason)));
-
-/* ==== Format ==== */
-const nf1 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 1 });
-const nf2 = new Intl.NumberFormat('en-US',{ maximumFractionDigits: 2 });
-const money = n => (n==null||isNaN(n)) ? 'N/D' : '$' + (
-  Math.abs(n)>=1e12? nf2.format(n/1e12)+'T' :
-  Math.abs(n)>=1e9 ? nf2.format(n/1e9)+'B' :
-  Math.abs(n)>=1e6 ? nf2.format(n/1e6)+'M' :
-  Math.abs(n)>=1e3 ? nf2.format(n/1e3)+'K' : nf2.format(n)
-);
-const fmtPct0 = n => (n==null||isNaN(n)) ? '—' : `${Math.round(+n)}%`;
-const fmtPct  = n => (n==null||isNaN(n)) ? '—' : `${nf2.format(+n)}%`;
-const fmtNum2 = n => (n==null||isNaN(n)) ? '—' : nf2.format(+n);
-
-/* ==== DOM ==== */
-const tbody = document.querySelector('#screener tbody');
-const emptyMsg = document.getElementById('emptyMsg');
-const lastupdate = document.getElementById('lastupdate');
-const searchInput = document.getElementById('search');
-const btnRefresh = document.getElementById('btnRefresh');
-const autoToggle = document.getElementById('autoToggle');
-const cardsGrid = document.getElementById('cardsGrid');
-
-let allRows = [];
-let autoTimer = null;
-
-/* ==== Signaux & score carte ==== */
-function buildSignals(t){
-  const s=[];
-  if(t.tvl == null) s.push({k:'TVL N/D', c:'b-bad', pri:1});
-  if(t.mc_tvl != null && t.mc_tvl <= 3) s.push({k:'💎 MC/TVL≤3', c:'b-good', pri:3});
-  if(t.mc_tvl != null && t.mc_tvl > 12) s.push({k:'MC/TVL>12', c:'b-bad', pri:2});
-  if(t.var_vol_7_over_30 != null && t.var_vol_7_over_30 >= 1.5) s.push({k:'⚡ Vol7/30≥1.5', c:'b-info', pri:4});
-  if(t.vol_mc_24 != null && t.vol_mc_24 >= 5) s.push({k:'💧 Vol/MC≥5%', c:'b-good', pri:5});
-  if(t.vol_mc_24 != null && t.vol_mc_24 < 1) s.push({k:'Illiquid', c:'b-warn', pri:5});
-  if(t.x_ath_mc != null && t.x_ath_mc >= 3) s.push({k:'🎯 x≥3 ATH Mcap', c:'b-info', pri:6});
-  if(t.x_ath_mc != null && t.x_ath_mc < 1) s.push({k:'Near ATH Mcap', c:'b-warn', pri:7});
-  if(t.rsi_d != null && t.rsi_d <= 35) s.push({k:'🧊 RSI D≤35', c:'b-info', pri:8});
-  if(t.rsi_d != null && t.rsi_d >= 70) s.push({k:'🟥 RSI D≥70', c:'b-bad', pri:8});
-  return s.sort((a,b)=>a.pri-b.pri);
+/* ========= UTILS ========= */
+function normalizeSymbolForCMC(asset){
+  if(!asset) return "";
+  const core = String(asset).split(':').pop().trim(); // "BINANCE:AVAXUSDT" → "AVAXUSDT"
+  return core.replace(/USDT|USD|USDC|DAI|PERP|_PERP|\/.*$/i,"").trim().toUpperCase();
 }
-function cardClass(t){
-  let good=0, bad=0;
-  if(t.mc_tvl!=null){ if(t.mc_tvl<=3) good++; if(t.mc_tvl>12) bad++; }
-  if(t.vol_mc_24!=null){ if(t.vol_mc_24>=5) good++; if(t.vol_mc_24<1) bad++; }
-  if(t.rsi_d!=null){ if(t.rsi_d<=35) good++; if(t.rsi_d>=70) bad++; }
-  if(bad>=1 && good===0) return 'bad';
-  if(good>=2 && bad===0) return 'good';
-  return 'warn';
+function parseVenue(asset){
+  if(!asset) return "";
+  const parts = String(asset).split(':');
+  return parts.length>1 ? parts[0].trim().toUpperCase() : "";
 }
-
-/* ==== Rendu TABLE ==== */
-function render(json){
-  const data = Array.isArray(json?.tokens) ? json.tokens : [];
-  lastupdate.textContent = 'Dernière MàJ : ' + (json.updated_at || '—');
-
-  tbody.innerHTML=''; allRows.length=0;
-  if(!data.length){ emptyMsg.style.display='block'; cardsGrid.innerHTML=''; return; }
-  emptyMsg.style.display='none';
-
-  data.forEach(t=>{
-    const tr = document.createElement('tr');
-
-    const price = (t.price!=null) ? '$'+nf2.format(+t.price) : '—';
-    const d24 = fmtPct0(t.d24);
-    const d7  = fmtPct0(t.d7);
-    const d30 = fmtPct0(t.d30);
-    const mc  = money(t.mc);
-    const tvl = (t.tvl!=null) ? money(t.tvl) : 'N/D';
-    const mctvl = (t.mc!=null && t.tvl!=null && t.tvl>0) ? nf2.format(t.mc/t.tvl) : '—';
-    const volmc = (t.vol_mc_24!=null) ? nf2.format(+t.vol_mc_24)+'%' : '—';
-    const vol7  = (t.vol7_avg!=null) ? money(t.vol7_avg) : '—';
-    const vol30 = (t.vol30_avg!=null) ? money(t.vol30_avg) : '—';
-    const var73 = (t.var_vol_7_over_30!=null) ? nf2.format(+t.var_vol_7_over_30)+'×' : '—';
-    const rsid = (t.rsi_d!=null) ? nf2.format(+t.rsi_d) : '—';
-    const rsih4= (t.rsi_h4!=null) ? nf2.format(+t.rsi_h4) : '—';
-    const ath  = (t.ath!=null) ? '$'+nf2.format(+t.ath) : '—';
-    const xath = (t.x_ath_mc!=null) ? 'x'+nf1.format(+t.x_ath_mc) : '—';
-
-    tr.innerHTML = `
-      <td><div class="token"><div class="logo"></div><div><span class="sym">${t.symbol||''}</span><span class="muted"> · ${t.venue||''}</span></div></div></td>
-      <td class="num">${t.alert_date || '—'}</td>
-      <td class="num">${price}</td>
-      <td class="num">${d24}</td>
-      <td class="num col-optional">${d7}</td>
-      <td class="num col-optional">${d30}</td>
-      <td class="num">${mc}</td>
-      <td class="num">${tvl}</td>
-      <td class="num">${mctvl}</td>
-      <td class="num col-optional">${volmc}</td>
-      <td class="num col-optional">${vol7}</td>
-      <td class="num col-optional">${vol30}</td>
-      <td class="num col-optional">${var73}</td>
-      <td class="num">${rsid}</td>
-      <td class="num col-optional">${rsih4}</td>
-      <td class="num col-optional">${ath}</td>
-      <td class="num">${xath}</td>
-    `;
-
-    // couleurs
-    const mctvlCell = tr.children[8];
-    const mctvlVal = (t.mc!=null && t.tvl!=null && t.tvl>0) ? (t.mc/t.tvl) : NaN;
-    if(!isNaN(mctvlVal)){
-      if(mctvlVal <= 3) mctvlCell.classList.add('t-good');
-      else if(mctvlVal <= 8) mctvlCell.classList.add('t-warn');
-      else mctvlCell.classList.add('t-bad');
-    }
-    const volCell = tr.children[9];
-    const volVal = parseFloat(t.vol_mc_24);
-    if(!isNaN(volVal)){
-      if(volVal >= 5) volCell.classList.add('t-good');
-      else if(volVal >= 2) volCell.classList.add('t-warn');
-      else volCell.classList.add('t-bad');
-    }
-    const rsiDCell = tr.children[13];
-    const rsiDVal = parseFloat(t.rsi_d);
-    if(!isNaN(rsiDVal)){
-      if(rsiDVal >= 70) rsiDCell.classList.add('t-bad');
-      else if(rsiDVal >= 45 && rsiDVal <= 60) rsiDCell.classList.add('t-good');
-      else rsiDCell.classList.add('t-warn');
-    }
-
-    tbody.appendChild(tr);
-    allRows.push(tr);
-  });
-
-  renderCards(data);
+function parseAssetPair(asset){
+  if(!asset) return "";
+  const parts = String(asset).split(':');
+  return parts.length>1 ? parts[1].trim().toUpperCase() : String(asset).trim().toUpperCase();
 }
+function ymdParis(d=new Date()){
+  const dt = (d instanceof Date) ? d : new Date(d);
+  const p = new Intl.DateTimeFormat('fr-FR',{ timeZone:'Europe/Paris', year:'numeric', month:'2-digit', day:'2-digit' })
+            .formatToParts(dt).reduce((o,p)=> (o[p.type]=p.value, o), {});
+  return `${p.year}-${p.month}-${p.day}`;
+}
+async function fetchCsv(urlOrObj, label){
+  // urlOrObj peut être string (URL directe) ou {primary, fallback}
+  const doFetch = async (u) => {
+    const res = await fetch(u);
+    if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
+    const text = await res.text();
+    return parse(text, { columns:true, skip_empty_lines:true });
+  };
+  if(typeof urlOrObj === 'string'){ return doFetch(urlOrObj); }
+  try { return await doFetch(urlOrObj.primary); }
+  catch(e){ console.warn(`[${label}] primary failed: ${e.message} → trying fallback…`); return await doFetch(urlOrObj.fallback); }
+}
+async function jget(url, label, opts={}){
+  await sleep(THROTTLE_MS);
+  const res = await fetch(url, opts);
+  if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
+  return await res.json();
+}
+function stripHtml(s=''){ return String(s).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim(); }
+function truncate(s, n=160){ if(!s) return ''; const t=s.slice(0,n); return (s.length>n)? t.replace(/\s+\S*$/,'')+'…' : t; }
 
-/* ==== Cartes ==== */
-function renderCards(list){
-  cardsGrid.innerHTML='';
-  (list||[]).forEach((t,idx)=>{
-    const sigs = buildSignals(t);
-    const cls = cardClass(t);
+/* ========= SHEET ========= */
+async function collectFromHistory(){
+  console.log("➡️  Lecture CSV: history…");
+  const recs = await fetchCsv(SHEET_URL_HISTORY, "history");
+  const seen = new Set();
+  const out = [];
 
-    const div = document.createElement('div');
-    div.className='sig-card '+cls;
+  const today = new Date();
+  const cutoff = new Date(today.getTime() - 2*24*3600*1000); // ≤2 jours
+  const cutoffYMD = ymdParis(cutoff);
 
-    const price = (t.price!=null) ? '$'+nf2.format(+t.price) : '—';
-    const mc  = money(t.mc);
-    const tvl = (t.tvl!=null) ? money(t.tvl) : 'N/D';
+  for(const row of recs){
+    const asset = row["asset"] || row["Asset"] || row["ASSET"];
+    if(!asset) continue;
 
-    const mctvl = (t.mc_tvl!=null)? fmtNum2(t.mc_tvl) : '—';
-    const rsid = (t.rsi_d!=null) ? nf2.format(+t.rsi_d) : '—';
-    const xath = (t.x_ath_mc!=null) ? 'x'+nf1.format(+t.x_ath_mc) : '—';
-    const volmc = (t.vol_mc_24!=null) ? fmtPct(t.vol_mc_24) : '—';
-    const var73 = (t.var_vol_7_over_30!=null)? nf2.format(+t.var_vol_7_over_30)+'×' : '—';
+    const venue = parseVenue(asset).toUpperCase();
+    const pair  = parseAssetPair(asset).toUpperCase();
 
-    const detId = `det-${idx}-${(t.symbol||'X').toLowerCase()}`;
+    // 🔒 1) uniquement paires finissant par USDT ou USDC (crypto spot)
+    if(!/(USDT|USDC)$/i.test(pair)) continue;
 
-    div.innerHTML=`
-      <div class="sig-head">
-        <div>
-          <div class="sig-title">${t.symbol||''}</div>
-          <div class="sig-sub">${t.alert_date||'—'} · ${t.venue||''}</div>
-        </div>
-        <div class="sig-price">${price}</div>
-      </div>
+    // 🔒 2) uniquement venues crypto whitelists (incl. COINBASE)
+    if(venue && !ALLOWED_VENUES.includes(venue)) continue;
 
-      <div class="sig-sub">MC ${mc} · TVL ${tvl}</div>
+    const symbolCMC = normalizeSymbolForCMC(asset);
+    if(!symbolCMC) continue;
 
-      <div class="sig-metrics">
-        <span class="chip">MC/TVL ${mctvl}</span>
-        <span class="chip">RSI D ${rsid}</span>
-        <span class="chip">x ATH Mcap ${xath}</span>
-        <span class="chip">Vol/MC 24h ${volmc}</span>
-        <span class="chip">Vol7/30 ${var73}</span>
-      </div>
+    const dk = (row["DateKey"] || row["datekey"] || row["date"] || "").toString().slice(0,10);
+    if(dk && dk < cutoffYMD) continue;
 
-      ${ (sigs.length? '<div class="badges">'+sigs.map(x=>`<span class="badge ${x.c}">${x.k}</span>`).join('')+'</div>' : '') }
+    if(seen.has(symbolCMC)) continue;
+    seen.add(symbolCMC);
 
-      <div class="actions">
-        <button class="btn-ghost" data-toggle="${detId}">+ Détails</button>
-      </div>
-
-      <div id="${detId}" class="details">
-        <!-- Valeurs + explications -->
-        <div class="kv"><div class="k">Prix</div>
-          <div class="v">${price}</div></div>
-        <div class="expl">Prix spot en USD (CMC).</div>
-
-        <div class="kv"><div class="k">Δ24h / 7j / 30j</div>
-          <div class="v">${fmtPct0(t.d24)} · ${fmtPct0(t.d7)} · ${fmtPct0(t.d30)}</div></div>
-        <div class="expl">Variations CMC. Attention, fortes accélérations récentes peuvent biaiser la lecture du RSI.</div>
-
-        <div class="kv"><div class="k">Market Cap</div>
-          <div class="v">${mc}</div></div>
-        <div class="expl">Capitalisation courante = prix × supply en circulation (CMC). Utile pour comparer la taille relative des projets.</div>
-
-        <div class="kv"><div class="k">TVL</div>
-          <div class="v">${t.tvl!=null?money(t.tvl):'N/D'} <span class="muted">(${t.tvl_source||'—'})</span></div></div>
-        <div class="expl">Total Value Locked (DeFiLlama). Reflète l’usage on-chain (collatéraux, pools, lending…).</div>
-
-        <div class="kv"><div class="k">MC/TVL</div>
-          <div class="v">${t.mc_tvl!=null?fmtNum2(t.mc_tvl):'—'}</div></div>
-        <div class="expl">Ratio valorisation / usage on-chain. <strong>&lt;=3</strong> souvent perçu comme plus “value”, <strong>&gt;12</strong> = riche/tendu.</div>
-
-        <div class="kv"><div class="k">Vol/MC (24h)</div>
-          <div class="v">${t.vol_mc_24!=null?fmtPct(t.vol_mc_24):'—'}</div></div>
-        <div class="expl">Liquidité relative. <strong>&ge;5%</strong> = bonne rotation, <strong>&lt;1%</strong> = illiquide/fragile.</div>
-
-        <div class="kv"><div class="k">Moy Vol 7j / 30j</div>
-          <div class="v">${t.vol7_avg!=null?money(t.vol7_avg):'—'} · ${t.vol30_avg!=null?money(t.vol30_avg):'—'}</div></div>
-        <div class="expl">Moyennes sur bougies daily (exchange). Indique la pression d’échange récente vs mensuelle.</div>
-
-        <div class="kv"><div class="k">Var Vol 7j/30j</div>
-          <div class="v">${t.var_vol_7_over_30!=null?nf2.format(+t.var_vol_7_over_30)+'×':'—'}</div></div>
-        <div class="expl">Accélération de volume. <strong>&ge;1.5×</strong> = regain d’intérêt/flux entrants.</div>
-
-        <div class="kv"><div class="k">Moy Vol7j / TVL</div>
-          <div class="v">${t.vol7_tvl!=null?nf2.format(+t.vol7_tvl)+'%':'—'}</div></div>
-        <div class="expl">Montre la part d’échanges récents par rapport aux fonds “bloqués”. Utile pour jauger de l’activité spéculative.</div>
-
-        <div class="kv"><div class="k">RSI Daily / H4</div>
-          <div class="v">${t.rsi_d!=null?nf2.format(+t.rsi_d):'—'} · ${t.rsi_h4!=null?nf2.format(+t.rsi_h4):'—'}</div></div>
-        <div class="expl">RSI(14). <strong>&gt;70</strong> = surachat (risque de pullback), <strong>&lt;35</strong> = survente (potentiel rebond). Le H4 donne le rythme court terme.</div>
-
-        <div class="kv"><div class="k">ATH (prix)</div>
-          <div class="v">${t.ath!=null?('$'+nf2.format(+t.ath)):'—'} ${t.ath_date?('· '+t.ath_date):''}</div></div>
-        <div class="expl">Plus haut historique (sur l’horizon récupéré via klines). À compléter si besoin avec plus d’historique.</div>
-
-        <div class="kv"><div class="k">ATH Mcap</div>
-          <div class="v">${t.ath_mc!=null?money(t.ath_mc):'—'}</div></div>
-        <div class="expl">Capitalisation implicite au prix ATH (supply circ. si disponible, sinon proportion vs MC actuelle).</div>
-
-        <div class="kv"><div class="k">x ATH Mcap</div>
-          <div class="v">${t.x_ath_mc!=null?('x'+nf1.format(+t.x_ath_mc)):'—'}</div></div>
-        <div class="expl">Multiplicateur pour revenir à la market cap ATH. Utile pour estimer le “potentiel” relatif.</div>
-
-        <div class="kv"><div class="k">Prix cible (ATH Mcap)</div>
-          <div class="v">${t.price_target_ath_mc!=null?('$'+nf2.format(+t.price_target_ath_mc)):'—'}</div></div>
-        <div class="expl">Prix théorique si la capi revenait à son ATH avec la supply actuelle (approx.).</div>
-
-        <div class="kv"><div class="k">Rank / FDV / Supplies</div>
-          <div class="v">
-            rank: ${t.rank!=null?String(t.rank):'—'} · FDV: ${t.fdv!=null?money(t.fdv):'—'} ·
-            circ: ${t.circulating_supply!=null?nf2.format(+t.circulating_supply):'—'} ·
-            total: ${t.total_supply!=null?nf2.format(+t.total_supply):'—'} ·
-            max: ${t.max_supply!=null?nf2.format(+t.max_supply):'—'}
-          </div></div>
-        <div class="expl">FDV = Fully Diluted Valuation. Attention aux gros unlocks (si connus) qui augmentent la supply en circulation.</div>
-      </div>
-    `;
-
-    // Toggle details
-    div.querySelector(`[data-toggle="${detId}"]`).addEventListener('click', (ev)=>{
-      const panel = div.querySelector('#'+detId);
-      const open = panel.classList.toggle('open');
-      ev.currentTarget.textContent = open ? '— Masquer' : '+ Détails';
+    out.push({
+      symbol_cmc: symbolCMC,
+      venue,
+      asset_pair: pair,
+      alert_date: dk || ymdParis(today),
+      source: "history"
     });
-
-    cardsGrid.appendChild(div);
-  });
+  }
+  console.log(`✅ ${out.length} tokens (history ≤2j, USDT/USDC only, venues ok)`);
+  return out;
 }
 
-/* ==== Charger data.json ==== */
-async function loadData(){
+async function collectFromAlertes(){
+  console.log("➡️  Lecture CSV: alertes…");
+  const recs = await fetchCsv(SHEET_URL_ALERTES, "alerte");
+  const out = [];
+  const seen = new Set();
+
+  for(const row of recs){
+    const asset = row["asset"] || row["Asset"] || row["ASSET"];
+    if(!asset) continue;
+
+    const venue = parseVenue(asset).toUpperCase();
+    const pair  = parseAssetPair(asset).toUpperCase();
+
+    // 🔒 1) USDT ou USDC only (fin de chaîne)
+    if(!/(USDT|USDC)$/i.test(pair)) continue;
+
+    // 🔒 2) venues crypto whitelists (incl. COINBASE)
+    if(venue && !ALLOWED_VENUES.includes(venue)) continue;
+
+    const symbolCMC = normalizeSymbolForCMC(asset);
+    if(!symbolCMC) continue;
+    if(seen.has(symbolCMC)) continue;
+    seen.add(symbolCMC);
+
+    out.push({
+      symbol_cmc: symbolCMC,
+      venue,
+      asset_pair: pair,
+      alert_date: ymdParis(new Date()), // aujourd’hui
+      source: "alerte"
+    });
+  }
+  console.log(`✅ ${out.length} tokens (alertes USDT/USDC, venues ok)`);
+  return out;
+}
+
+/* ========= CMC (market + info) ========= */
+const CMC_BASE_HEADERS = (CMC_KEY? { 'X-CMC_PRO_API_KEY': CMC_KEY } : {});
+async function cmcQuotesBySymbols(symbols){
+  if(!CMC_KEY){ console.warn("⚠️  CMC_API_KEY manquante."); return {}; }
+  const out = {};
+  for(let i=0;i<symbols.length;i+=50){
+    const batch = symbols.slice(i,i+50);
+    const url = `${CMC_BASE}/cryptocurrency/quotes/latest?symbol=${encodeURIComponent(batch.join(','))}&convert=USD`;
+    try{
+      const data = await jget(url, "CMC quotes", { headers: CMC_BASE_HEADERS });
+      if(data && data.data){
+        Object.entries(data.data).forEach(([sym, obj])=>{
+          out[sym.toUpperCase()] = obj;
+        });
+      }
+    }catch(e){ console.warn('CMC quotes error:', e.message); }
+  }
+  return out;
+}
+async function cmcInfoBySymbols(symbols){
+  if(!CMC_KEY){ console.warn("⚠️  CMC_API_KEY manquante pour info."); return {}; }
+  const out = {};
+  for(let i=0;i<symbols.length;i+=50){
+    const batch = symbols.slice(i,i+50);
+    const url = `${CMC_BASE}/cryptocurrency/info?symbol=${encodeURIComponent(batch.join(','))}`;
+    try{
+      const data = await jget(url, "CMC info", { headers: CMC_BASE_HEADERS });
+      const d = data?.data || {};
+      Object.keys(d).forEach(sym=>{
+        const val = d[sym];
+        const first = Array.isArray(val) ? val[0] : val;
+        if(first){
+          out[sym.toUpperCase()] = {
+            category: first.category || null,
+            description: first.description || null,
+            tags: first.tags || [],
+            urls: first.urls || {},
+            date_added: first.date_added || null,
+            name: first.name || null,
+            slug: first.slug || null
+          };
+        }
+      });
+    }catch(e){ console.warn('CMC info error:', e.message); }
+  }
+  return out;
+}
+
+/* ========= DeFiLlama (TVL + proto meta) ========= */
+let LLAMA_PROTOCOLS_CACHE = null;
+async function llamaProtocols(){
+  if(LLAMA_PROTOCOLS_CACHE) return LLAMA_PROTOCOLS_CACHE;
+  LLAMA_PROTOCOLS_CACHE = await jget(`${LLAMA_BASE}/protocols`, "Llama protocols");
+  return LLAMA_PROTOCOLS_CACHE;
+}
+async function matchTVLAndMeta(symbol){
   try{
-    const res = await fetch('data.json?ts='+Date.now(), { cache:'no-store' });
-    if(!res.ok){ debug(`HTTP ${res.status} ${res.statusText} sur data.json`); render({ tokens: [] }); lastupdate.textContent = 'Erreur: data.json introuvable'; return; }
-    const json = await res.json();
-    if(!json || !Array.isArray(json.tokens)){ debug('Format data.json inattendu'); render({ tokens: [] }); lastupdate.textContent='Erreur: format data.json'; return; }
-    render(json);
-  }catch(e){
-    debug('loadData() failed: '+(e.message||e));
-    render({ tokens: [] });
-    lastupdate.textContent = 'Erreur de chargement';
+    const protos = await llamaProtocols();
+    const sym = symbol.toUpperCase();
+    const cand = protos.find(p =>
+      (p.symbol && String(p.symbol).toUpperCase() === sym) ||
+      (p.symbol && String(p.symbol).toUpperCase().startsWith(sym)) ||
+      (p.name && String(p.name).toUpperCase() === sym)
+    ) || protos.find(p => p.name && p.name.toUpperCase().startsWith(sym));
+    if(!cand) return { tvl:null, source:null, category:null, chains:[], protocol_name:null };
+    const tvl = (typeof cand.tvl === 'number') ? cand.tvl : null;
+    const category = cand.category || null;
+    const chains = Array.isArray(cand.chains) ? cand.chains : [];
+    const protocol_name = cand.name || null;
+    return { tvl, source: `protocol:${cand.slug||cand.name}`, category, chains, protocol_name };
+  }catch{
+    return { tvl:null, source:null, category:null, chains:[], protocol_name:null };
   }
 }
 
-/* ==== Search / Refresh / Auto ==== */
-document.getElementById('search').addEventListener('input', (e)=>{
-  const q = e.target.value.trim().toLowerCase();
-  document.querySelectorAll('#screener tbody tr').forEach(r=>{
-    r.style.display = r.innerText.toLowerCase().includes(q) ? '' : 'none';
+/* ========= CEX KLINES (OHLCV) ========= */
+function secondsToMs(ts){ return ts<1e12 ? ts*1000 : ts; }
+
+// ---- BINANCE ----
+async function klinesBinanceDaily(symbol){
+  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
+  const url = `https://api.binance.com/api/v3/klines?symbol=${s}&interval=1d&limit=1000`;
+  const data = await jget(url, `BINANCE klines ${s}`);
+  return (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
+}
+async function closesBinanceH4(symbol){
+  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
+  const url = `https://api.binance.com/api/v3/klines?symbol=${s}&interval=4h&limit=1000`;
+  const data = await jget(url, `BINANCE klines 4h ${s}`);
+  return (data||[]).map(a=>+a[4]).filter(Number.isFinite);
+}
+
+// ---- MEXC ----
+async function klinesMexcDaily(symbol){
+  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
+  const url = `https://api.mexc.com/api/v3/klines?symbol=${s}&interval=1d&limit=1000`;
+  const data = await jget(url, `MEXC klines ${s}`);
+  return (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
+}
+async function closesMexcH4(symbol){
+  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
+  const url = `https://api.mexc.com/api/v3/klines?symbol=${s}&interval=4h&limit=1000`;
+  const data = await jget(url, `MEXC klines 4h ${s}`);
+  return (data||[]).map(a=>+a[4]).filter(Number.isFinite);
+}
+
+// ---- BYBIT ----
+async function klinesBybitDaily(symbol){
+  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
+  const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${s}&interval=D&limit=1000`;
+  const data = await jget(url, `BYBIT klines ${s}`);
+  const list = data?.result?.list || [];
+  return list.map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]})).reverse();
+}
+async function closesBybitH4(symbol){
+  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
+  const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${s}&interval=240&limit=1000`;
+  const data = await jget(url, `BYBIT klines 4h ${s}`);
+  const list = data?.result?.list || [];
+  return list.map(a=>+a[4]).reverse().filter(Number.isFinite);
+}
+
+// ---- KUCOIN ----
+async function klinesKucoinDaily(symbol){
+  const s = symbol.toUpperCase().includes('-') ? symbol.toUpperCase()
+            : symbol.toUpperCase().replace(/(USDT|USDC|USD)$/,'-$1');
+  const url = `https://api.kucoin.com/api/v1/market/candles?type=1day&symbol=${encodeURIComponent(s)}`;
+  const data = await jget(url, `KUCOIN candles ${s}`);
+  const arr = data?.data || []; // plus récent d'abord
+  return arr.map(a=>{
+    // a = [time, open, close, high, low, volume, turnover], time en seconds
+    const t = secondsToMs(+a[0]);
+    return { t, o:+a[1], c:+a[2], h:+a[3], l:+a[4], v:+a[5] };
+  }).reverse();
+}
+async function closesKucoinH4(symbol){
+  const s = symbol.toUpperCase().includes('-') ? symbol.toUpperCase()
+            : symbol.toUpperCase().replace(/(USDT|USDC|USD)$/,'-$1');
+  const url = `https://api.kucoin.com/api/v1/market/candles?type=4hour&symbol=${encodeURIComponent(s)}`;
+  const data = await jget(url, `KUCOIN candles 4h ${s}`);
+  const arr = data?.data || [];
+  return arr.map(a=>+a[2]).reverse().filter(Number.isFinite); // close = index 2
+}
+
+/* ==== Orchestrateurs ==== */
+const SUPPORTED = ['BINANCE','MEXC','BYBIT','KUCOIN'];
+
+function buildCandidates(pair){
+  const base = (pair||'').toUpperCase().replace(/[^A-Z0-9-]/g,'');
+  const set = new Set();
+  set.add(base);
+  if(!/(USDT|USDC|USD)$/.test(base)){
+    set.add(base+'USDT'); set.add(base+'USDC'); set.add(base+'USD');
+  }else{
+    set.add(base.replace(/(USDT|USDC|USD)$/,'USDT'));
+    set.add(base.replace(/(USDT|USDC|USD)$/,'USDC'));
+    set.add(base.replace(/(USDT|USDC|USD)$/,'USD'));
+  }
+  return Array.from(set);
+}
+
+async function fetchKlinesDailyAny(preferredVenue, pair){
+  const order = [];
+  const pref = (preferredVenue||'').toUpperCase();
+  if(SUPPORTED.includes(pref)) order.push(pref);
+  SUPPORTED.forEach(v=>{ if(!order.includes(v)) order.push(v); }); // fallback
+
+  const variants = buildCandidates(pair);
+
+  for(const venue of order){
+    for(const cand of variants){
+      try{
+        if(venue==='BINANCE'){ const rows=await klinesBinanceDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
+        else if(venue==='MEXC'){ const rows=await klinesMexcDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
+        else if(venue==='BYBIT'){ const rows=await klinesBybitDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
+        else if(venue==='KUCOIN'){ const rows=await klinesKucoinDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
+      }catch(e){ /* try next */ }
+    }
+  }
+  return { venue:null, pair:null, rows:[] };
+}
+
+async function fetchClosesH4Any(venueHint, pair){
+  const order = [];
+  const pref = (venueHint||'').toUpperCase();
+  if(SUPPORTED.includes(pref)) order.push(pref);
+  SUPPORTED.forEach(v=>{ if(!order.includes(v)) order.push(v); });
+
+  for(const venue of order){
+    try{
+      if(venue==='BINANCE') { const x=await closesBinanceH4(pair); if(x.length) return x; }
+      if(venue==='MEXC')    { const x=await closesMexcH4(pair);    if(x.length) return x; }
+      if(venue==='BYBIT')   { const x=await closesBybitH4(pair);   if(x.length) return x; }
+      if(venue==='KUCOIN')  { const x=await closesKucoinH4(pair);  if(x.length) return x; }
+    }catch(e){/* next */}
+  }
+  return [];
+}
+
+function computeRSI(closes, period=14){
+  if(!closes || closes.length < period+1) return null;
+  const deltas = [];
+  for(let i=1;i<closes.length;i++) deltas.push(closes[i]-closes[i-1]);
+  let gain=0, loss=0;
+  for(let i=0;i<period;i++){ const d=deltas[i]; if(d>0) gain+=d; else loss-=d; }
+  gain/=period; loss/=period;
+  for(let i=period;i<deltas.length;i++){
+    const d=deltas[i]; const g=d>0?d:0; const l=d<0?-d:0;
+    gain=(gain*(period-1)+g)/period; loss=(loss*(period-1)+l)/period;
+  }
+  if(loss===0) return 100;
+  const rs = gain/loss;
+  return 100 - (100/(1+rs));
+}
+
+/* ========= ENRICH ========= */
+async function enrich(tokens){
+  /* 1) CMC quotes + info */
+  const symbols = tokens.map(t=>t.symbol_cmc);
+  const quotes = await cmcQuotesBySymbols(symbols);
+  const infos  = await cmcInfoBySymbols(symbols);
+
+  tokens.forEach(t=>{
+    const q = quotes[t.symbol_cmc?.toUpperCase()];
+    const usd = q?.quote?.USD;
+    if(usd){
+      t.price = usd.price ?? null;
+      t.mc    = usd.market_cap ?? null;
+      t.rank  = q.cmc_rank ?? null;
+      t.d24   = usd.percent_change_24h ?? null;
+      t.d7    = usd.percent_change_7d ?? null;
+      t.d30   = usd.percent_change_30d ?? null;
+      t.volume_24h = usd.volume_24h ?? null;
+      t.circulating_supply = q.circulating_supply ?? null;
+      t.total_supply = q.total_supply ?? null;
+      t.max_supply   = q.max_supply ?? null;
+      t.fdv = usd.fully_diluted_market_cap ?? null;
+      t.vol_mc_24 = (t.volume_24h && t.mc) ? (t.volume_24h / t.mc * 100) : null;
+    } else {
+      t.price=t.mc=t.rank=t.d24=t.d7=t.d30=t.volume_24h=t.fdv=null;
+      t.circulating_supply=t.total_supply=t.max_supply=null;
+      t.vol_mc_24=null;
+    }
+    // contexte (CMC info)
+    const info = infos[t.symbol_cmc?.toUpperCase()];
+    if(info){
+      const urls = info.urls || {};
+      t.sector = info.category || null;
+      t.tags = Array.isArray(info.tags) ? info.tags.slice(0,3) : [];
+      const desc = stripHtml(info.description||'');
+      t.blurb = desc ? truncate(desc, 160) : null;
+      t.website = Array.isArray(urls.website) && urls.website[0] ? urls.website[0] : null;
+      t.twitter = Array.isArray(urls.twitter) && urls.twitter[0] ? urls.twitter[0] : null;
+      t.whitepaper = Array.isArray(urls.technical_doc) && urls.technical_doc[0] ? urls.technical_doc[0] : null;
+      t.date_added = info.date_added || null;
+      t.name = info.name || null;
+      t.slug = info.slug || null;
+    }else{
+      t.sector=null; t.tags=[]; t.blurb=null; t.website=null; t.twitter=null; t.whitepaper=null; t.date_added=null; t.name=null; t.slug=null;
+    }
+
+    // placeholders
+    t.rsi_d=null; t.rsi_h4=null;
+    t.ath=null; t.ath_date=null;
+    t.vol7_avg=null; t.vol30_avg=null; t.var_vol_7_over_30=null; t.vol7_tvl=null;
+    t.ath_mc=null; t.x_ath_mc=null; t.price_target_ath_mc=null;
+    t.tvl=null; t.tvl_source=null; t.mc_tvl=null;
+    t.llama_category=null; t.llama_chains=[]; t.protocol_name=null;
   });
-});
-document.getElementById('btnRefresh').addEventListener('click', loadData);
 
-function startAuto(){ stopAuto(); autoTimer=setInterval(loadData, 60_000); }
-function stopAuto(){ if(autoTimer){ clearInterval(autoTimer); autoTimer=null; } }
-autoToggle.checked = localStorage.getItem('autoRefresh')==='1';
-if(autoToggle.checked) startAuto();
-autoToggle.addEventListener('change', ()=>{
-  if(autoToggle.checked){ startAuto(); localStorage.setItem('autoRefresh','1'); }
-  else { stopAuto(); localStorage.setItem('autoRefresh','0'); }
-});
+  /* 2) TVL (DeFiLlama) + meta fallback */
+  for(const t of tokens){
+    try{
+      const { tvl, source, category, chains, protocol_name } = await matchTVLAndMeta(t.symbol_cmc);
+      t.tvl = tvl; t.tvl_source = source;
+      t.mc_tvl = (t.mc && t.tvl) ? (t.mc / t.tvl) : null;
+      t.llama_category = category || null;
+      t.llama_chains = chains || [];
+      t.protocol_name = protocol_name || null;
 
-/* ==== Boot ==== */
-document.addEventListener('DOMContentLoaded', loadData);
-</script>
-</body>
-</html>
+      if(!t.sector && category) t.sector = category;
+      if(!t.blurb && protocol_name){
+        t.blurb = truncate(`${protocol_name} — protocole ${category || 'DeFi'} sur ${ (chains||[]).slice(0,2).join(', ') }`, 160);
+      }
+    }catch{ /* ignore */ }
+    await sleep(120);
+  }
+
+  /* 3) Klines → RSI/ATH/vol7/30 */
+  for(const t of tokens){
+    try{
+      const { venue:usedVenue, pair:usedPair, rows:daily } =
+        await fetchKlinesDailyAny(t.venue, t.asset_pair);
+
+      if(daily && daily.length){
+        const closes = daily.map(r=>+r.c).filter(Number.isFinite);
+        const vols   = daily.map(r=>+r.v).filter(Number.isFinite);
+
+        // RSI D
+        t.rsi_d = computeRSI(closes.slice(-200), 14);
+
+        // ATH (prix + date)
+        let ath = -Infinity, athTs=null;
+        for(const r of daily){ if(r.h>ath){ ath=r.h; athTs=r.t; } }
+        t.ath = Number.isFinite(ath) ? ath : null;
+        t.ath_date = (athTs!=null) ? new Date(athTs).toISOString().slice(0,10) : null;
+
+        // Moy. volumes 7j / 30j et Var
+        const last7 = vols.slice(-7);
+        const last30= vols.slice(-30);
+        const avg7  = last7.length ? last7.reduce((a,b)=>a+b,0)/last7.length : null;
+        const avg30 = last30.length? last30.reduce((a,b)=>a+b,0)/last30.length: null;
+        t.vol7_avg = avg7;
+        t.vol30_avg = avg30;
+        t.var_vol_7_over_30 = (avg7 && avg30) ? (avg7/avg30) : null;
+        t.vol7_tvl = (avg7 && t.tvl) ? (avg7 / t.tvl * 100) : null;
+
+        // RSI H4
+        try{
+          const h4closes = await fetchClosesH4Any(usedVenue || t.venue, usedPair || t.asset_pair);
+          t.rsi_h4 = computeRSI(h4closes.slice(-300), 14);
+        }catch{ t.rsi_h4 = null; }
+
+        // ATH Mcap & x
+        if(t.ath!=null && t.price!=null && t.mc!=null){
+          const ath_mc = (t.circulating_supply!=null)
+            ? (t.ath * t.circulating_supply)
+            : (t.mc * (t.ath / t.price));
+          t.ath_mc = ath_mc ?? null;
+          t.x_ath_mc = (ath_mc && t.mc) ? (ath_mc / t.mc) : ((t.price && t.ath) ? (t.ath / t.price) : null);
+          t.price_target_ath_mc = (t.x_ath_mc && t.price) ? (t.price * t.x_ath_mc) : null;
+        }
+      } else {
+        console.warn(`ℹ️  Pas de klines pour ${t.symbol_cmc} (venue=${t.venue}, pair=${t.asset_pair})`);
+      }
+    }catch(e){
+      console.warn(`Klines enrich fail ${t.symbol_cmc}:`, e.message);
+    }
+  }
+
+  // Arrondis doux
+  const round = (n, d=6)=> (typeof n==='number' && isFinite(n)) ? +n.toFixed(d) : n;
+  tokens.forEach(t=>{
+    ['price','mc','tvl','mc_tvl','vol_mc_24',
+     'vol7_avg','vol30_avg','var_vol_7_over_30','vol7_tvl',
+     'rsi_d','rsi_h4','ath','ath_mc','x_ath_mc','price_target_ath_mc'
+    ].forEach(k=>{
+      if(t[k]!=null) t[k] = round(t[k], (k==='mc_tvl'||k==='x_ath_mc'||k==='var_vol_7_over_30')?2:6);
+    });
+  });
+
+  return tokens;
+}
+
+/* ========= MAIN ========= */
+(async function main(){
+  let tokens = [];
+  try{
+    const baseHistory = await collectFromHistory();
+    const baseAlertes = await collectFromAlertes();
+
+    // fusion sans doublon (priorité history)
+    const merged = [...baseHistory];
+    const seen = new Set(baseHistory.map(x=>x.symbol_cmc));
+    for(const t of baseAlertes){
+      if(!seen.has(t.symbol_cmc)){
+        merged.push(t);
+        seen.add(t.symbol_cmc);
+      }
+    }
+
+    // limiter le volume total si besoin
+    const slice = merged.slice(0, MAX_TOKENS_PER_RUN);
+
+    tokens = slice.map(x=>({
+      symbol: x.symbol_cmc,
+      symbol_cmc: x.symbol_cmc,
+      venue: x.venue,
+      asset_pair: x.asset_pair,
+      alert_date: x.alert_date,
+      source: x.source,
+
+      // champs enrichis ensuite
+      price:null, d24:null, d7:null, d30:null, d1y:null,
+      mc:null, tvl:null, mc_tvl:null,
+      volume_24h:null, vol_mc_24:null,
+      vol7_avg:null, vol30_avg:null, vol7_tvl:null, var_vol_7_over_30:null,
+      rsi_d:null, rsi_h4:null,
+      ath:null, ath_date:null,
+      ath_mc:null, x_ath_mc:null, price_target_ath_mc:null,
+      circulating_supply:null, total_supply:null, max_supply:null, fdv:null, rank:null,
+
+      // contexte
+      sector:null, tags:[], blurb:null, website:null, twitter:null, whitepaper:null, date_added:null,
+      llama_category:null, llama_chains:[], protocol_name:null, name:null, slug:null,
+
+      tvl_source:null
+    }));
+
+    const enriched = await enrich(tokens);
+
+    // 🔽 Tri par date décroissante (plus récents en haut)
+    enriched.sort((a,b) => (b.alert_date || "").localeCompare(a.alert_date || ""));
+
+    const data = { updated_at: new Date().toISOString(), tokens: enriched };
+    fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
+    console.log(`✅ data.json écrit (${enriched.length} tokens).`);
+  }catch(e){
+    console.error("❌ Erreur:", e);
+    const data = { updated_at: new Date().toISOString(), tokens: tokens || [] };
+    fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
+    process.exit(1);
+  }
+})();
