@@ -29,64 +29,66 @@
   .muted{ color:var(--muted) }
   .pill{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--border); border-radius:999px; background:var(--chip); font-size:12px; color:var(--text) }
 
-  .wrap{ max-width:1200px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns: 1fr minmax(340px, 0); gap:16px; }
+  .wrap{ max-width:1200px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns: 1fr minmax(360px, 0); gap:16px; }
   @media (max-width: 980px){ .wrap{ grid-template-columns:1fr } }
 
-  /* Table */
+  /* Table — COMPACT */
   .tableWrap{ background: var(--bg-soft); border:1px solid var(--border); border-radius:14px; box-shadow: var(--shadow); overflow:auto; }
-  table{ width:100%; border-collapse:separate; border-spacing:0; min-width:900px; }
+  table{
+    width:100%; border-collapse:separate; border-spacing:0;
+    table-layout: fixed; /* important pour éviter le scroll horizontal */
+  }
   thead th{
     position:sticky; top:0; background:linear-gradient(180deg,#0f1628 0%, #0c1324 100%);
     border-bottom:1px solid var(--border); font-weight:600; font-size:12px; text-align:left; padding:10px 12px; color:#c9d7f2;
   }
-  tbody td{ padding:10px 12px; border-bottom:1px solid #0f1830; font-size:13px; vertical-align:middle;}
-  tbody tr{ transition:background .15s ease, box-shadow .15s ease }
-  tbody tr:hover{ background:#0e162b; }
-  .rowDot{
-    width:6px; height:6px; border-radius:50%; margin-right:8px; display:inline-block;
-    box-shadow:0 0 0 3px rgba(255,255,255,.04);
-  }
-  .rowDot.pos{ background:var(--good) }
-  .rowDot.neg{ background:var(--bad) }
+  /* Largeurs compactes par colonne */
+  thead th:nth-child(1), tbody td:nth-child(1){ width: 92px; }   /* Date */
+  thead th:nth-child(2), tbody td:nth-child(2){ width: 110px; }  /* Symbole */
+  thead th:nth-child(3), tbody td:nth-child(3){ width: 110px; }  /* Prix */
+  thead th:nth-child(4), tbody td:nth-child(4){ width: 86px; }   /* 24h */
+  thead th:nth-child(5), tbody td:nth-child(5){ width:auto; }    /* Ratios (auto) */
 
+  tbody td{ padding:10px 12px; border-bottom:1px solid #0f1830; font-size:13px; vertical-align:middle; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  tbody tr{ transition:background .15s ease }
+  tbody tr:hover{ background:#0e162b; }
   .tag{font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); background:#0b1224; color:#cfe0ff}
   .num{ font-variant-numeric: tabular-nums; }
   .pos{ color: var(--good); } .neg{ color: var(--bad); }
 
-  .chip{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:10px; background:var(--chip); border:1px solid var(--border); font-size:12px; }
-  .chip.good{ border-color: rgba(22,199,132,.35); background: rgba(22,199,132,.08); }
-  .chip.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
-  .chip.bad{  border-color: rgba(234,57,67,.35);  background: rgba(234,57,67,.08); }
+  /* Ratios stackés dans une cellule */
+  .ratiosCell{ display:flex; align-items:center; gap:10px; overflow:hidden; }
+  .rStack{ display:flex; flex-wrap:wrap; gap:6px 10px; align-items:center; }
+  .rItem{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:10px; background:var(--chip); border:1px solid var(--border); font-size:12px; }
+  .badgeK{ font-weight:700; opacity:.85 }
+  .rGood{ border-color: rgba(22,199,132,.35); background: rgba(22,199,132,.08); }
+  .rWarn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
+  .rBad{  border-color: rgba(234,57,67,.35);  background: rgba(234,57,67,.08); }
+
+  /* Mini donut MC/TVL */
+  .donut{ width:42px; height:42px; position:relative; flex:0 0 auto }
+  .donut svg{ transform:rotate(-90deg) }
+  .donut .center{ position:absolute; inset:0; display:grid; place-items:center; font-size:10px; color:#cfe0ff; }
 
   /* Panel */
-  .panel{ position:relative; background:var(--panel); border:1px solid var(--border); border-radius:14px; box-shadow: var(--shadow); min-height:340px; display:none; flex-direction:column; overflow:hidden; }
+  .panel{ position:relative; background:var(--panel); border:1px solid var(--border); border-radius:14px; box-shadow: var(--shadow); min-height:360px; display:none; flex-direction:column; overflow:hidden; }
   .panel.open{ display:flex; }
   .panelHead{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 12px; border-bottom:1px solid var(--border); background:linear-gradient(90deg,#0f1629,#0f1c36);}
-  .title{ display:flex; align-items:center; gap:12px; }
+  .title{ display:flex; align-items:center; gap:12px; min-width:0 }
   .avatar{
     width:38px; height:38px; border-radius:10px; background:linear-gradient(135deg,#2b3759,#101a35);
     display:grid; place-items:center; font-weight:800; color:#bcd3ff; border:1px solid var(--border);
     box-shadow: inset 0 0 0 2px rgba(255,255,255,.04);
   }
-  .panelBody{ padding:12px; overflow:auto; }
+  .panelBody{ padding:12px; overflow-y:auto; overflow-x:hidden; } /* ← plus de scroll horizontal */
   .grid{ display:grid; gap:12px; }
-  .grid.cols-2{ grid-template-columns: 1fr 1fr; }
-  @media (max-width: 980px){ .grid.cols-2{ grid-template-columns: 1fr; } }
-
-  /* KPI cards */
   .kpiRow{ display:grid; grid-template-columns: repeat(4, minmax(150px,1fr)); gap:10px; }
   @media (max-width: 980px){ .kpiRow{ grid-template-columns: repeat(2, minmax(150px,1fr)); } }
   .kpi{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:6px; position:relative; overflow:hidden; }
   .kpi .label{ font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px;}
   .kpi .value{ font-size:16px; font-weight:800; }
   .kpi .sub{ font-size:12px; color:var(--muted) }
-  .kpi .corner{
-    position:absolute; right:-16px; top:-16px; width:64px; height:64px; border-radius:50%;
-    background: radial-gradient(closest-side, rgba(59,130,246,.18), transparent 70%);
-    pointer-events:none;
-  }
 
-  /* Analytics compact */
   .row{ display:flex; gap:12px; flex-wrap:wrap; }
   .card{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; flex:1 1 230px; min-width:230px; }
   .card h4{ margin:0 0 8px 0; font-size:12px; color:#cfe0ff; letter-spacing:.2px }
@@ -94,22 +96,16 @@
   .bar > i{ display:block; height:100%; background:linear-gradient(90deg,#3b82f6,#16c784); width:0% }
   .pillLarge{ display:flex; align-items:center; justify-content:center; gap:8px; padding:8px 10px; border-radius:10px; border:1px solid var(--border); background:linear-gradient(180deg,#101731,#0c1226); font-weight:800; font-size:14px; }
 
-  /* MC/TVL donut */
-  .donut{ width:54px; height:54px; position:relative; }
-  .donut svg{ transform:rotate(-90deg) }
-  .donut .center{ position:absolute; inset:0; display:grid; place-items:center; font-size:11px; color:#cfe0ff; }
-
   .rsiChips{ display:flex; gap:8px; flex-wrap:wrap; }
   .rsiChip{ padding:4px 8px; border-radius:10px; border:1px solid var(--border); background:#0f1730; font-size:12px; }
 
   .meta{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .badge{ font-size:11px; padding:6px 8px; border-radius:999px; background:#0f1830; border:1px solid var(--border) }
 
-  /* Links row */
-  .links{ display:flex; gap:8px; flex-wrap:wrap; }
+  .links{ display:flex; gap:8px; flex-wrap:wrap; } /* ← wrap pour éviter le scroll */
   .iconBtn{
     display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; background:#0f1730; border:1px solid var(--border);
-    color:#cfe0ff; text-decoration:none; font-size:12px;
+    color:#cfe0ff; text-decoration:none; font-size:12px; flex:0 0 auto;
   }
   .iconBtn .ic{ width:16px; height:16px; display:inline-grid; place-items:center; }
 
@@ -124,10 +120,6 @@
   .status.yesterday{ background: rgba(22,199,132,.12); border-color: rgba(22,199,132,.35); color:#b9f4d5 }
 
   .nowrap{ white-space:nowrap } .truncate{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100% } .small{ font-size:12px }
-
-  details.help{ margin-top:12px; background:#0c1429; border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
-  details.help summary{ cursor:pointer; color:#cfe0ff; font-weight:600; }
-  .help p{ margin:8px 0; color:#b6c7e6; font-size:12px; }
 </style>
 </head>
 <body>
@@ -135,7 +127,7 @@
   <div class="hdr">
     <h1>Scan Ma50 — Screener</h1>
     <span id="lastUpdate" class="muted small">—</span>
-    <span class="pill">Tri : plus récents d’abord</span>
+    <span class="pill">Vue compacte (sans scroll horizontal)</span>
   </div>
 </header>
 
@@ -148,11 +140,7 @@
           <th>Symbole</th>
           <th>Prix</th>
           <th>24h</th>
-          <th>MC</th>
-          <th>TVL</th>
-          <th>MC/TVL</th>
-          <th>x ATH Mcap</th>
-          <th>Flux 24h</th>
+          <th>Ratios (MC • TVL • MC/TVL • xATH • Vol/Mcap)</th>
         </tr>
       </thead>
       <tbody id="tbody"></tbody>
@@ -164,7 +152,7 @@
     <div class="panelHead">
       <div class="title">
         <div class="avatar" id="avatar">—</div>
-        <div>
+        <div style="min-width:0">
           <div id="tName" class="truncate" style="font-weight:800;"></div>
           <div class="muted small" id="tMeta"></div>
         </div>
@@ -176,69 +164,57 @@
       </div>
     </div>
     <div class="panelBody">
-      <!-- KPIs cœur -->
       <div class="kpiRow" id="kpis"></div>
 
-      <!-- Analytics compact -->
       <div class="row" style="margin:12px 0">
         <div class="card">
-          <h4>Vol 24h / Mcap (%) <span class="tip" title="Activité court terme. Haut = token très tradé ; bas = faible liquidité relative.">ⓘ</span></h4>
+          <h4>Vol 24h / Mcap (%)</h4>
           <div class="bar"><i id="volmc_bar" style="width:0%"></i></div>
           <div id="volmc_txt" class="small muted" style="margin-top:6px">—</div>
         </div>
         <div class="card">
-          <h4>Moy Vol 7j / TVL (%) <span class="tip" title="Flux de trading vs valeur verrouillée. Haut = plus spéculatif ; bas = plus stable.">ⓘ</span></h4>
+          <h4>Moy Vol 7j / TVL (%)</h4>
           <div class="bar"><i id="vol7tvl_bar" style="width:0%"></i></div>
           <div id="vol7tvl_txt" class="small muted" style="margin-top:6px">—</div>
         </div>
         <div class="card">
-          <h4>Variation Vol 7j / 30j <span class="tip" title="Accélération de l’activité. >1 = montée en puissance ; <1 = essoufflement des flux.">ⓘ</span></h4>
+          <h4>Variation Vol 7j / 30j</h4>
           <div id="var73_pill" class="pillLarge">—</div>
         </div>
       </div>
 
-      <!-- RSI compact + xATH -->
       <div class="row" style="margin-bottom:12px">
         <div class="card" style="flex:2">
-          <h4>RSI (compact) <span class="tip" title="Momentum de prix. <30 = survendu ; >70 = suracheté.">ⓘ</span></h4>
+          <h4>RSI (compact)</h4>
           <div class="rsiChips">
             <span id="rsiD_chip" class="rsiChip">Daily —</span>
             <span id="rsiH4_chip" class="rsiChip">H4 —</span>
           </div>
         </div>
         <div class="card" style="flex:1">
-          <h4>Potentiel (x ATH Mcap) <span class="tip" title="Distance théorique au plus haut historique. Haut = très ‘loin’ des sommets ; bas = déjà proche.">ⓘ</span></h4>
+          <h4>Potentiel (x ATH Mcap)</h4>
           <div id="athx_pill" class="pillLarge">—</div>
           <div id="ath_sub" class="small muted" style="margin-top:6px">ATH prix —</div>
         </div>
       </div>
 
-      <!-- Contexte & liens -->
       <div class="row">
-        <div class="card" style="flex:2">
+        <div class="card" style="flex:2; min-width:260px">
           <h4>Résumé</h4>
           <div id="blurb" class="small muted">—</div>
           <div class="meta" id="metaTags" style="margin-top:10px"></div>
         </div>
-        <div class="card" style="flex:1">
+        <div class="card" style="flex:1; min-width:240px">
           <h4>Liens</h4>
           <div class="links" id="links"></div>
         </div>
       </div>
-
-      <!-- Légende rapide -->
-      <details class="help">
-        <summary>🎯 Légende & lecture</summary>
-        <p><b>MC/TVL :</b> soutenabilité de la valo par la liquidité — bas = efficient ; haut = tendu.</p>
-        <p><b>Flux (Vol/Mcap, Vol7/TVL, 7/30j):</b> intensité et accélération des échanges — utile pour capter l’intérêt du marché.</p>
-        <p><b>x ATH Mcap :</b> éloignement des sommets historiques — à contextualiser avec cycle & tokenomics.</p>
-        <p><b>RSI :</b> momentum prix — &lt;30: survendu ; &gt;70: suracheté.</p>
-      </details>
     </div>
   </aside>
 </div>
 
 <script>
+/* --------- Helpers --------- */
 const fmt = {
   num:(n, d=2)=> (n==null || !isFinite(n)) ? '—' : Number(n).toLocaleString('fr-FR',{maximumFractionDigits:d}),
   kmb:(n)=>{
@@ -263,39 +239,63 @@ function setLastUpdate(ts){
 
 const colors = {
   mcTvlClass:(x)=>{
-    if(x==null || !isFinite(x)) return 'chip';
-    if(x<=1.5) return 'chip good';
-    if(x<=5)   return 'chip warn';
-    return 'chip bad';
+    if(x==null || !isFinite(x)) return '';
+    if(x<=1.5) return 'rGood';
+    if(x<=5)   return 'rWarn';
+    return 'rBad';
   },
   posNeg:(n)=> n==null? '' : (n>=0?'pos':'neg'),
 };
 
-/* ---------- Table ---------- */
+/* --------- Mini donut MC/TVL --------- */
+function donutHTML(val){
+  if(val==null || !isFinite(val)) return '';
+  const max = 10; // clamp visuel
+  const x = Math.max(0, Math.min(max, val));
+  const pct = (x / max);
+  const R=18, C=2*Math.PI*R;
+  const stroke = pct*C;
+  const cls = colors.mcTvlClass(val);
+  const col = cls==='rGood' ? '#16c784' : (cls==='rWarn' ? '#f59e0b' : '#ea3943');
+  return `<div class="donut" title="Lecture visuelle MC/TVL (clamp à 10)">
+    <svg width="42" height="42" viewBox="0 0 42 42">
+      <circle cx="21" cy="21" r="${R}" fill="none" stroke="#0d1a35" stroke-width="7"/>
+      <circle cx="21" cy="21" r="${R}" fill="none" stroke="${col}" stroke-width="7"
+              stroke-dasharray="${stroke} ${C-stroke}" stroke-linecap="round"/>
+    </svg>
+    <div class="center">${val.toFixed(1)}</div>
+  </div>`;
+}
+
+/* --------- TABLE --------- */
+function ratiosCell(t){
+  const donut = (t.mc_tvl!=null) ? donutHTML(t.mc_tvl) : '';
+  const mc = `<span class="rItem"><span class="badgeK">MC</span> ${fmt.kmb(t.mc)}</span>`;
+  const tvl= `<span class="rItem"><span class="badgeK">TVL</span> ${fmt.kmb(t.tvl)}</span>`;
+  const mct = `<span class="rItem ${colors.mcTvlClass(t.mc_tvl)}"><span class="badgeK">MC/TVL</span> ${t.mc_tvl!=null?t.mc_tvl.toFixed(2):'—'}</span>`;
+  const xath= `<span class="rItem"><span class="badgeK">xATH</span> ${t.x_ath_mc!=null? 'x'+t.x_ath_mc.toFixed(2):'—'}</span>`;
+  const volm= `<span class="rItem"><span class="badgeK">Vol/Mcap</span> ${t.vol_mc_24!=null? t.vol_mc_24.toFixed(2)+'%':'—'}</span>`;
+
+  return `<div class="ratiosCell">
+    ${donut}
+    <div class="rStack">${mc}${tvl}${mct}${xath}${volm}</div>
+  </div>`;
+}
+
 function rowHTML(t){
   const dclass = colors.posNeg(t.d24);
-  const mc_tvl = (t.mc_tvl!=null && isFinite(t.mc_tvl)) ? t.mc_tvl : null;
-  const mcTvlClass = colors.mcTvlClass(mc_tvl);
-  const volmc = t.vol_mc_24!=null ? t.vol_mc_24 : null;
-  const xath = t.x_ath_mc!=null ? 'x'+Number(t.x_ath_mc).toFixed(2) : '—';
-
-  const dotCls = (t.d24==null)? '' : (t.d24>=0?'pos':'neg');
-
   return `<tr data-sym="${t.symbol}">
-    <td class="num"><span class="rowDot ${dotCls}"></span>${fmt.dateFR(t.alert_date)}</td>
+    <td class="num">${fmt.dateFR(t.alert_date)}</td>
     <td class="nowrap"><span class="tag">${t.symbol}</span></td>
     <td class="num">${fmt.num(t.price, 6)}</td>
     <td class="num ${dclass}">${fmt.pct(t.d24)}</td>
-    <td class="num">${fmt.kmb(t.mc)}</td>
-    <td class="num">${fmt.kmb(t.tvl)}</td>
-    <td><span class="${mcTvlClass}">${mc_tvl!=null? mc_tvl.toFixed(2) : '—'}</span></td>
-    <td class="num">${xath}</td>
-    <td class="num">${volmc!=null? volmc.toFixed(2)+'%' : '—'}</td>
+    <td>${ratiosCell(t)}</td>
   </tr>`;
 }
+
 function mountTable(list){ document.getElementById('tbody').innerHTML = list.map(rowHTML).join(''); }
 
-/* ---------- Panel ---------- */
+/* --------- PANEL --------- */
 function ensurePanelOpen(open=true){ const p = document.getElementById('panel'); if(open) p.classList.add('open'); else p.classList.remove('open'); }
 function setAvatar(sym){ document.getElementById('avatar').textContent = (sym||'—').slice(0,4).toUpperCase(); }
 function setMeta(t){
@@ -307,61 +307,21 @@ function setMeta(t){
   m.textContent = parts.join(' ');
 }
 
-/* KPI card builder */
-function kpi(label, valueHTML, sub='', extraRightHTML=''){
+function kpi(label, valueHTML, sub=''){
   return `<div class="kpi">
-    <div class="corner"></div>
-    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px">
-      <div class="label">${label}</div>
-      ${extraRightHTML||''}
-    </div>
+    <div class="label">${label}</div>
     <div class="value">${valueHTML}</div>
     ${sub? `<div class="sub">${sub}</div>`:''}
   </div>`;
 }
 
-/* Simple donut (MC/TVL normalization up to 10) */
-function donutHTML(val){
-  if(val==null || !isFinite(val)) return '';
-  const max = 10; // clamp visuel
-  const x = Math.max(0, Math.min(max, val));
-  const pct = (x / max);
-  const R=24, C=2*Math.PI*R;
-  const stroke = pct*C;
-  const cls = colors.mcTvlClass(val).split(' ')[1] || 'chip';
-  const col = cls==='good' ? '#16c784' : (cls==='warn' ? '#f59e0b' : '#ea3943');
-  return `<div class="donut" title="Lecture visuelle MC/TVL (clamp à 10)">
-    <svg width="54" height="54" viewBox="0 0 54 54">
-      <circle cx="27" cy="27" r="${R}" fill="none" stroke="#0d1a35" stroke-width="8"/>
-      <circle cx="27" cy="27" r="${R}" fill="none" stroke="${col}" stroke-width="8"
-              stroke-dasharray="${stroke} ${C-stroke}" stroke-linecap="round"/>
-    </svg>
-    <div class="center">${val.toFixed(1)}</div>
-  </div>`;
-}
-
 function buildKpis(t){
   const d24class = colors.posNeg(t.d24);
-  const mc_tvl_cls = colors.mcTvlClass(t.mc_tvl);
-
-  const tipPrice = `Cours actuel en USD. Sert de base aux ratios (ex. x ATH, variations).`;
-  const tipTVL   = `Valeur verrouillée sur le protocole. Plus c’est élevé, plus la traction ‘on-chain’ est forte.`;
-  const tipMCTVL = `Valorisation vs liquidité verrouillée. Bas = soutenu ; haut = sur-valorisation potentielle.`;
-
-  const mcTvlDonut = (t.mc_tvl!=null && isFinite(t.mc_tvl)) ? donutHTML(t.mc_tvl) : '';
-
   const chips = [
-    kpi(`Prix <span class="tip" title="${tipPrice}">ⓘ</span>`,
-        `<span class="num">${fmt.num(t.price,6)}</span>`,
-        `<span class="${d24class}">${fmt.pct(t.d24)}</span>`),
-    kpi(`Market Cap`,
-        `<span class="num">${fmt.kmb(t.mc)}</span>`,
-        t.rank? `Rang #${t.rank}` : ''),
-    kpi(`TVL <span class="tip" title="${tipTVL}">ⓘ</span>`,
-        `<span class="num">${fmt.kmb(t.tvl)}</span>`,
-        t.tvl_source? `<span class="small muted">${t.tvl_source}</span>`:''),
-    kpi(`MC / TVL <span class="tip" title="${tipMCTVL}">ⓘ</span>`,
-        `<span class="${mc_tvl_cls}">${t.mc_tvl!=null? t.mc_tvl.toFixed(2):'—'}</span>`, '', mcTvlDonut),
+    kpi(`Prix`, `<span class="num">${fmt.num(t.price,6)}</span>`, `<span class="${d24class}">${fmt.pct(t.d24)}</span>`),
+    kpi(`Market Cap`, `<span class="num">${fmt.kmb(t.mc)}</span>`, t.rank? `Rang #${t.rank}` : ''),
+    kpi(`TVL`, `<span class="num">${fmt.kmb(t.tvl)}</span>`, t.tvl_source? `<span class="small muted">${t.tvl_source}</span>`:''),
+    kpi(`MC / TVL`, `<span class="${colors.mcTvlClass(t.mc_tvl)} rItem" style="display:inline-flex;">${t.mc_tvl!=null? t.mc_tvl.toFixed(2):'—'}</span>`, ''),
   ];
   document.getElementById('kpis').innerHTML = chips.join('');
 }
@@ -411,44 +371,34 @@ function setRSIChips(t){
   h4.textContent = (t.rsi_h4==null? 'H4 —'   : (t.rsi_h4<30? `H4 ${t.rsi_h4.toFixed(1)} (survendu)`   : (t.rsi_h4>70? `H4 ${t.rsi_h4.toFixed(1)} (suracheté)`   : `H4 ${t.rsi_h4.toFixed(1)}`)));
 }
 
-/* Badges */
-function badge(txt){ return `<span class="badge">${txt}</span>`; }
 function buildMetaTags(t){
   const arr = [];
-  if(t.sector) arr.push(badge(t.sector));
-  if(Array.isArray(t.tags)) t.tags.forEach(x=> arr.push(badge(x)));
-  if(Array.isArray(t.llama_chains) && t.llama_chains.length){
-    arr.push(badge('Chains: ' + t.llama_chains.slice(0,4).join(', ')));
+  if(t.sector) arr.push(`<span class="badge">${t.sector}</span>`);
+  (t.tags||[]).slice(0,3).forEach(x=> arr.push(`<span class="badge">${x}</span>`));
+  if((t.llama_chains||[]).length){
+    arr.push(`<span class="badge">Chains: ${(t.llama_chains||[]).slice(0,4).join(', ')}</span>`);
   }
   document.getElementById('metaTags').innerHTML = arr.join('') || `<span class="muted small">Aucun tag</span>`;
 }
 
-/* Links (plus visibles + CMC + DeFiLlama) */
 function setLinks(t){
   const el = document.getElementById('links');
   const items = [];
-
   if(t.website)    items.push(`<a class="iconBtn" href="${t.website}" target="_blank" rel="noopener"><span class="ic">🌐</span>Site</a>`);
   if(t.twitter)    items.push(`<a class="iconBtn" href="${t.twitter}" target="_blank" rel="noopener"><span class="ic">𝕏</span>Twitter</a>`);
   if(t.whitepaper) items.push(`<a class="iconBtn" href="${t.whitepaper}" target="_blank" rel="noopener"><span class="ic">📄</span>Whitepaper</a>`);
-
-  // CMC page si slug/name dispo
-  if(t.slug) items.push(`<a class="iconBtn" href="https://coinmarketcap.com/currencies/${t.slug}/" target="_blank" rel="noopener"><span class="ic">📊</span>CoinMarketCap</a>`);
-
-  // DeFiLlama page protocole si on a une source de type protocol:slug
+  if(t.slug)       items.push(`<a class="iconBtn" href="https://coinmarketcap.com/currencies/${t.slug}/" target="_blank" rel="noopener"><span class="ic">📊</span>CMC</a>`);
   if(t.tvl_source && t.tvl_source.startsWith('protocol:')){
     const slug = t.tvl_source.split(':')[1];
     items.push(`<a class="iconBtn" href="https://defillama.com/protocol/${slug}" target="_blank" rel="noopener"><span class="ic">🦙</span>DeFiLlama</a>`);
   }
-
-  el.innerHTML = items.join('') || `<span class="muted small">Aucun lien détecté (site/X/whitepaper/CMC)</span>`;
+  el.innerHTML = items.join('') || `<span class="muted small">Aucun lien détecté</span>`;
 }
 
-/* Open details */
 function openDetails(t){
   ensurePanelOpen(true);
   document.getElementById('tName').textContent = (t.name || t.symbol || '—') + (t.symbol? ` (${t.symbol})`:'');
-  setAvatar(t.symbol);
+  document.getElementById('avatar').textContent = (t.symbol||'—').slice(0,4).toUpperCase();
   setMeta(t);
   document.getElementById('alertTag').textContent = t.alert_date ? new Date(t.alert_date).toLocaleDateString('fr-FR') : '—';
 
@@ -456,19 +406,22 @@ function openDetails(t){
   setBars(t);
   setRSIChips(t);
   setATH(t);
-  document.getElementById('blurb').textContent =
-    t.blurb || (t.sector || t.protocol_name || (t.llama_chains||[]).length ? `${t.sector? 'Secteur: '+t.sector+'. ':''}${t.protocol_name? 'Protocole: '+t.protocol_name+'. ':''}${(t.llama_chains||[]).length? 'Chains: '+t.llama_chains.slice(0,3).join(', ')+'.':''}` : 'Pas de descriptif.');
+
+  const blurb = t.blurb || (t.sector || t.protocol_name || (t.llama_chains||[]).length ? `${t.sector? 'Secteur: '+t.sector+'. ':''}${t.protocol_name? 'Protocole: '+t.protocol_name+'. ':''}${(t.llama_chains||[]).length? 'Chains: '+t.llama_chains.slice(0,3).join(', ')+'.':''}` : 'Pas de descriptif.');
+  document.getElementById('blurb').textContent = blurb;
   buildMetaTags(t);
   setLinks(t);
 }
 
-/* Click binding */
 function bindRowClicks(list){
   Array.from(document.querySelectorAll('#tbody tr')).forEach(tr=>{
     tr.addEventListener('click', ()=>{
       const sym = tr.getAttribute('data-sym');
       const t = list.find(x=>x.symbol===sym);
-      if(t) openDetails(t);
+      // fallback si pas data-sym (on utilise la 2e colonne texte)
+      const fallbackSym = sym || tr.querySelector('.tag')?.textContent?.trim();
+      const tok = t || list.find(x=>x.symbol===fallbackSym);
+      if(tok) openDetails(tok);
     });
   });
 }
@@ -491,7 +444,7 @@ function bindRowClicks(list){
     if(!isDrag) return;
     const wrap = document.getElementById('layout');
     const rect = wrap.getBoundingClientRect();
-    const rightWidth = Math.min(Math.max(340, rect.right - e.clientX), 600);
+    const rightWidth = Math.min(Math.max(360, rect.right - e.clientX), 620);
     wrap.style.gridTemplateColumns = `1fr ${rightWidth}px`;
   });
   window.addEventListener('mouseup', ()=>{ isDrag=false; document.body.style.userSelect='auto'; });
@@ -504,7 +457,8 @@ async function main(){
   setLastUpdate(data.updated_at);
 
   const list = Array.isArray(data.tokens)? data.tokens : [];
-  mountTable(list);
+  // data-sym pour clic
+  document.getElementById('tbody').innerHTML = list.map(t=> `<tr data-sym="${t.symbol}">${rowHTML(t).replace(/^<tr[^>]*>|<\/tr>$/g,'')}</tr>`).join('');
   bindRowClicks(list);
   if(list.length) openDetails(list[0]);
 }
