@@ -1,17 +1,17 @@
-// fetch_and_build.js
-// Sheet (history ≤2j + alertes USDT) → CMC (market + info) + DeFiLlama (TVL + meta) + CEX Klines (RSI/ATH/vol7/30) → data.json
+// scripts/fetch_and_build.js
+// Sheet (history ≤2j + alertes USDT/USDC) → CMC (market + info) + DeFiLlama (TVL + meta) + CEX Klines (RSI/ATH/vol7/30) → data.json
 // Node 20 (fetch natif). CommonJS.
 
 const fs = require('fs');
 const { parse } = require('csv-parse/sync');
 
 /* ========= CONFIG ========= */
-// IMPORTANT : Assure-toi que le Sheet est en "Anyone with the link: Viewer"
+// IMPORTANT : Le Sheet doit être partagé "Anyone with the link: Viewer"
 const DOC_ID = '1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8';
 const GID_HISTORY = '916004394';
 const GID_ALERTES = '0';
 
-// URLs "export" (stables) + fallback "pub"
+// URLs "export" + fallback "pub"
 const SHEET_URL_HISTORY = {
   primary: `https://docs.google.com/spreadsheets/d/${DOC_ID}/export?format=csv&gid=${GID_HISTORY}`,
   fallback: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=916004394&single=true&output=csv"
@@ -21,9 +21,11 @@ const SHEET_URL_ALERTES = {
   fallback: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=0&single=true&output=csv"
 };
 
+// Venues crypto autorisées (évite les actions/forex) — ajout COINBASE
+const ALLOWED_VENUES = ['BINANCE','MEXC','BYBIT','KUCOIN','CRYPTO','COINBASE'];
+
 const CMC_KEY  = process.env.CMC_API_KEY || "";
 const CMC_BASE = "https://pro-api.coinmarketcap.com/v1";
-
 const LLAMA_BASE = "https://api.llama.fi";
 
 const THROTTLE_MS = Number(process.env.THROTTLE_MS || 450);
@@ -34,7 +36,7 @@ const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
 function normalizeSymbolForCMC(asset){
   if(!asset) return "";
   const core = String(asset).split(':').pop().trim(); // "BINANCE:AVAXUSDT" → "AVAXUSDT"
-  return core.replace(/USDT|USD|USDC|PERP|_PERP|\/.*$/i,"").trim().toUpperCase();
+  return core.replace(/USDT|USD|USDC|DAI|PERP|_PERP|\/.*$/i,"").trim().toUpperCase();
 }
 function parseVenue(asset){
   if(!asset) return "";
@@ -60,17 +62,9 @@ async function fetchCsv(urlOrObj, label){
     const text = await res.text();
     return parse(text, { columns:true, skip_empty_lines:true });
   };
-
-  if(typeof urlOrObj === 'string'){
-    return doFetch(urlOrObj);
-  } else {
-    try {
-      return await doFetch(urlOrObj.primary);
-    } catch(e){
-      console.warn(`[${label}] primary failed: ${e.message} → trying fallback…`);
-      return await doFetch(urlOrObj.fallback);
-    }
-  }
+  if(typeof urlOrObj === 'string'){ return doFetch(urlOrObj); }
+  try { return await doFetch(urlOrObj.primary); }
+  catch(e){ console.warn(`[${label}] primary failed: ${e.message} → trying fallback…`); return await doFetch(urlOrObj.fallback); }
 }
 async function jget(url, label, opts={}){
   await sleep(THROTTLE_MS);
@@ -78,14 +72,8 @@ async function jget(url, label, opts={}){
   if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
   return await res.json();
 }
-function stripHtml(s=''){
-  return String(s).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim();
-}
-function truncate(s, n=160){
-  if(!s) return '';
-  const t = s.slice(0, n);
-  return (s.length>n) ? t.replace(/\s+\S*$/, '') + '…' : t;
-}
+function stripHtml(s=''){ return String(s).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim(); }
+function truncate(s, n=160){ if(!s) return ''; const t=s.slice(0,n); return (s.length>n)? t.replace(/\s+\S*$/,'')+'…' : t; }
 
 /* ========= SHEET ========= */
 async function collectFromHistory(){
@@ -102,6 +90,15 @@ async function collectFromHistory(){
     const asset = row["asset"] || row["Asset"] || row["ASSET"];
     if(!asset) continue;
 
+    const venue = parseVenue(asset).toUpperCase();
+    const pair  = parseAssetPair(asset).toUpperCase();
+
+    // 🔒 1) uniquement paires finissant par USDT ou USDC (crypto spot)
+    if(!/(USDT|USDC)$/i.test(pair)) continue;
+
+    // 🔒 2) uniquement venues crypto whitelists (incl. COINBASE)
+    if(venue && !ALLOWED_VENUES.includes(venue)) continue;
+
     const symbolCMC = normalizeSymbolForCMC(asset);
     if(!symbolCMC) continue;
 
@@ -113,13 +110,13 @@ async function collectFromHistory(){
 
     out.push({
       symbol_cmc: symbolCMC,
-      venue: parseVenue(asset),
-      asset_pair: parseAssetPair(asset),
+      venue,
+      asset_pair: pair,
       alert_date: dk || ymdParis(today),
       source: "history"
     });
   }
-  console.log(`✅ ${out.length} tokens (history ≤2j)`);
+  console.log(`✅ ${out.length} tokens (history ≤2j, USDT/USDC only, venues ok)`);
   return out;
 }
 
@@ -133,8 +130,14 @@ async function collectFromAlertes(){
     const asset = row["asset"] || row["Asset"] || row["ASSET"];
     if(!asset) continue;
 
-    // filtre : uniquement paires USDT (crypto spot)
-    if(!/USDT/i.test(asset)) continue;
+    const venue = parseVenue(asset).toUpperCase();
+    const pair  = parseAssetPair(asset).toUpperCase();
+
+    // 🔒 1) USDT ou USDC only (fin de chaîne)
+    if(!/(USDT|USDC)$/i.test(pair)) continue;
+
+    // 🔒 2) venues crypto whitelists (incl. COINBASE)
+    if(venue && !ALLOWED_VENUES.includes(venue)) continue;
 
     const symbolCMC = normalizeSymbolForCMC(asset);
     if(!symbolCMC) continue;
@@ -143,17 +146,18 @@ async function collectFromAlertes(){
 
     out.push({
       symbol_cmc: symbolCMC,
-      venue: parseVenue(asset),
-      asset_pair: parseAssetPair(asset),
+      venue,
+      asset_pair: pair,
       alert_date: ymdParis(new Date()), // aujourd’hui
       source: "alerte"
     });
   }
-  console.log(`✅ ${out.length} tokens (alertes USDT)`);
+  console.log(`✅ ${out.length} tokens (alertes USDT/USDC, venues ok)`);
   return out;
 }
 
 /* ========= CMC (market + info) ========= */
+const CMC_BASE_HEADERS = (CMC_KEY? { 'X-CMC_PRO_API_KEY': CMC_KEY } : {});
 async function cmcQuotesBySymbols(symbols){
   if(!CMC_KEY){ console.warn("⚠️  CMC_API_KEY manquante."); return {}; }
   const out = {};
@@ -161,7 +165,7 @@ async function cmcQuotesBySymbols(symbols){
     const batch = symbols.slice(i,i+50);
     const url = `${CMC_BASE}/cryptocurrency/quotes/latest?symbol=${encodeURIComponent(batch.join(','))}&convert=USD`;
     try{
-      const data = await jget(url, "CMC quotes", { headers: { 'X-CMC_PRO_API_KEY': CMC_KEY } });
+      const data = await jget(url, "CMC quotes", { headers: CMC_BASE_HEADERS });
       if(data && data.data){
         Object.entries(data.data).forEach(([sym, obj])=>{
           out[sym.toUpperCase()] = obj;
@@ -171,7 +175,6 @@ async function cmcQuotesBySymbols(symbols){
   }
   return out;
 }
-
 async function cmcInfoBySymbols(symbols){
   if(!CMC_KEY){ console.warn("⚠️  CMC_API_KEY manquante pour info."); return {}; }
   const out = {};
@@ -179,7 +182,7 @@ async function cmcInfoBySymbols(symbols){
     const batch = symbols.slice(i,i+50);
     const url = `${CMC_BASE}/cryptocurrency/info?symbol=${encodeURIComponent(batch.join(','))}`;
     try{
-      const data = await jget(url, "CMC info", { headers: { 'X-CMC_PRO_API_KEY': CMC_KEY } });
+      const data = await jget(url, "CMC info", { headers: CMC_BASE_HEADERS });
       const d = data?.data || {};
       Object.keys(d).forEach(sym=>{
         const val = d[sym];
@@ -325,22 +328,11 @@ async function fetchKlinesDailyAny(preferredVenue, pair){
   for(const venue of order){
     for(const cand of variants){
       try{
-        if(venue==='BINANCE'){
-          const rows = await klinesBinanceDaily(cand);
-          if(rows.length) return { venue, pair:cand, rows };
-        }else if(venue==='MEXC'){
-          const rows = await klinesMexcDaily(cand);
-          if(rows.length) return { venue, pair:cand, rows };
-        }else if(venue==='BYBIT'){
-          const rows = await klinesBybitDaily(cand);
-          if(rows.length) return { venue, pair:cand, rows };
-        }else if(venue==='KUCOIN'){
-          const rows = await klinesKucoinDaily(cand);
-          if(rows.length) return { venue, pair:cand, rows };
-        }
-      }catch(e){
-        // try next variant
-      }
+        if(venue==='BINANCE'){ const rows=await klinesBinanceDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
+        else if(venue==='MEXC'){ const rows=await klinesMexcDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
+        else if(venue==='BYBIT'){ const rows=await klinesBybitDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
+        else if(venue==='KUCOIN'){ const rows=await klinesKucoinDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
+      }catch(e){ /* try next */ }
     }
   }
   return { venue:null, pair:null, rows:[] };
