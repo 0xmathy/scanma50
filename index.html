@@ -1,572 +1,575 @@
-// scripts/fetch_and_build.js
-// Sheet (history ≤2j + alertes USDT/USDC) → CMC (market + info) + DeFiLlama (TVL + meta) + CEX Klines (RSI/ATH/vol7/30) → data.json
-// Node 20 (fetch natif). CommonJS.
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scan Ma50 — Screener</title>
+<style>
+  :root{
+    --bg: #0b0f1a;
+    --bg-soft:#0f1524;
+    --panel:#0d1322;
+    --card:#0e1526;
+    --muted:#8ea0bf;
+    --text:#e8eef9;
+    --accent:#3b82f6;
+    --good:#16c784;
+    --bad:#ea3943;
+    --warn:#f59e0b;
+    --chip:#111a2f;
+    --border:#1b2540;
+    --shadow: 0 8px 24px rgba(0,0,0,.35);
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+    background:linear-gradient(180deg,#081022 0%, #070b16 100%) fixed; color:var(--text);
+  }
+  header{
+    position:sticky; top:0; z-index:10; backdrop-filter: blur(8px);
+    background: rgba(8,12,22,.7); border-bottom:1px solid var(--border);
+  }
+  .hdr{
+    max-width:1200px; margin:auto; padding:14px 16px; display:flex; align-items:center; gap:12px;
+  }
+  .hdr h1{margin:0; font-size:18px; letter-spacing:.3px}
+  .muted{color:var(--muted)}
+  .pill{
+    display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--border);
+    border-radius:999px; background:var(--chip); font-size:12px; color:var(--text);
+  }
+  .wrap{max-width:1200px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns: 1fr minmax(320px, 0); gap:16px;}
+  @media (max-width: 980px){ .wrap{grid-template-columns:1fr} }
 
-const fs = require('fs');
-const { parse } = require('csv-parse/sync');
+  /* Table */
+  .tableWrap{ background: var(--bg-soft); border:1px solid var(--border); border-radius:14px; box-shadow: var(--shadow); overflow:auto; }
+  table{ width:100%; border-collapse:separate; border-spacing:0; min-width:860px; }
+  thead th{
+    position:sticky; top:0; background:linear-gradient(180deg,#0f1628 0%, #0c1324 100%);
+    border-bottom:1px solid var(--border); font-weight:600; font-size:12px; text-align:left; padding:10px 12px; color:#c9d7f2;
+  }
+  tbody td{ padding:10px 12px; border-bottom:1px solid #0f1830; font-size:13px; vertical-align:middle;}
+  tbody tr:hover{ background:#0e162b; }
+  .tag{font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); background:#0b1224; color:#cfe0ff}
+  .tag.green{ background: rgba(22,199,132,.12); color:#9cf0c8; border-color: rgba(22,199,132,.3)}
+  .tag.yellow{ background: rgba(245,158,11,.12); color:#ffd28a; border-color: rgba(245,158,11,.3)}
+  .tag.red{ background: rgba(234,57,67,.12); color:#ffb1b6; border-color: rgba(234,57,67,.3)}
+  .num{ font-variant-numeric: tabular-nums; }
+  .pos{ color: var(--good); }
+  .neg{ color: var(--bad); }
+  .chip{
+    display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:10px; background:var(--chip); border:1px solid var(--border); font-size:12px;
+  }
+  .chip.dot::before{ content:""; width:8px; height:8px; border-radius:50%; background:var(--muted); display:inline-block; }
+  .chip.good{ border-color: rgba(22,199,132,.35); background: rgba(22,199,132,.08); }
+  .chip.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
+  .chip.bad{  border-color: rgba(234,57,67,.35);  background: rgba(234,57,67,.08); }
 
-/* ========= CONFIG ========= */
-// IMPORTANT : Le Sheet doit être partagé "Anyone with the link: Viewer"
-const DOC_ID = '1c2-v0yZdroahwSqKn7yTZ4osQZa_DCf2onTTvPqJnc8';
-const GID_HISTORY = '916004394';
-const GID_ALERTES = '0';
+  /* Details panel (right) */
+  .panel{
+    position:relative; background:var(--panel); border:1px solid var(--border); border-radius:14px;
+    box-shadow: var(--shadow); min-height:320px; display:none; flex-direction:column; overflow:hidden;
+  }
+  .panel.open{ display:flex; }
+  .panelHead{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 12px; border-bottom:1px solid var(--border); background:#0f1629;}
+  .title{
+    display:flex; align-items:center; gap:12px;
+  }
+  .avatar{
+    width:34px; height:34px; border-radius:8px; background:linear-gradient(135deg,#2b3759,#101a35); display:grid; place-items:center; font-weight:700;
+    color:#bcd3ff; border:1px solid var(--border);
+  }
+  .panelBody{ padding:12px; overflow:auto; }
+  .grid{ display:grid; gap:12px; }
+  .grid.cols-2{ grid-template-columns: 1fr 1fr; }
+  @media (max-width: 980px){ .grid.cols-2{ grid-template-columns: 1fr; } }
+  .kpiRow{ display:flex; flex-wrap:wrap; gap:8px; }
+  .kpi{
+    background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px 12px; min-width:140px;
+    display:flex; flex-direction:column; gap:4px;
+  }
+  .kpi .label{ font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px;}
+  .kpi .value{ font-size:15px; font-weight:700; }
+  .kpi .sub{ font-size:12px; color:var(--muted) }
 
-// URLs "export" + fallback "pub"
-const SHEET_URL_HISTORY = {
-  primary: `https://docs.google.com/spreadsheets/d/${DOC_ID}/export?format=csv&gid=${GID_HISTORY}`,
-  fallback: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=916004394&single=true&output=csv"
+  .row{ display:flex; gap:12px; flex-wrap:wrap; }
+  .card{
+    background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; flex:1 1 220px; min-width:220px;
+  }
+  .card h4{ margin:0 0 8px 0; font-size:12px; color:#cfe0ff; letter-spacing:.2px }
+  .bar{ height:8px; background:#0b1328; border:1px solid var(--border); border-radius:999px; overflow:hidden; }
+  .bar > i{ display:block; height:100%; background:linear-gradient(90deg,#3b82f6,#16c784); width:0% }
+  .pillLarge{
+    display:flex; align-items:center; justify-content:center; gap:8px; padding:10px 12px; border-radius:12px; border:1px solid var(--border);
+    background:linear-gradient(180deg,#101731,#0c1226); font-weight:700;
+  }
+  .meta{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+  .badge{ font-size:11px; padding:6px 8px; border-radius:999px; background:#0f1830; border:1px solid var(--border) }
+  .links{ display:flex; gap:8px; }
+  .iconBtn{
+    display:grid; place-items:center; width:34px; height:34px; border-radius:10px; background:#0f1730; border:1px solid var(--border); color:#cfe0ff; text-decoration:none;
+  }
+
+  .handle{
+    position:absolute; top:0; left:-6px; width:12px; height:100%; cursor:col-resize;
+    background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.04) 50%, transparent 100%);
+  }
+
+  .tools{ display:flex; align-items:center; gap:8px;}
+  .btn{
+    background:#101833; border:1px solid var(--border); color:#cfe0ff; padding:6px 10px; border-radius:10px; cursor:pointer;
+  }
+  .btn.active{ background:#183058; }
+  .i{ width:14px; height:14px; display:inline-block; }
+
+  /* Tooltip */
+  .tip{
+    border-bottom:1px dotted #7ea2ff; cursor:help; color:#bcd3ff;
+  }
+
+  /* Status tag (nouvelle alerte, etc.) */
+  .status{ padding:4px 8px; border-radius:999px; border:1px solid var(--border); background:#0b1326; font-size:11px; }
+  .status.today{ background: rgba(59,130,246,.12); border-color: rgba(59,130,246,.35); color:#bcd8ff }
+  .status.yesterday{ background: rgba(22,199,132,.12); border-color: rgba(22,199,132,.35); color:#b9f4d5 }
+
+  /* Helpers */
+  .nowrap{ white-space:nowrap }
+  .truncate{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100% }
+  .small{ font-size:12px }
+</style>
+</head>
+<body>
+<header>
+  <div class="hdr">
+    <h1>Scan Ma50 — Screener</h1>
+    <span id="lastUpdate" class="muted small">—</span>
+    <span class="pill">Tri : plus récents d’abord</span>
+  </div>
+</header>
+
+<div class="wrap" id="layout">
+  <div class="tableWrap">
+    <table id="tbl">
+      <thead>
+        <tr>
+          <th>Date</th>
+          <th>Symbole</th>
+          <th>Prix</th>
+          <th>24h</th>
+          <th>MC</th>
+          <th>TVL</th>
+          <th>MC/TVL</th>
+          <th>RSI D</th>
+          <th>x ATH Mcap</th>
+          <th>Flux 24h</th>
+        </tr>
+      </thead>
+      <tbody id="tbody"></tbody>
+    </table>
+  </div>
+
+  <aside class="panel" id="panel">
+    <div class="handle" id="handle" title="Redimensionner"></div>
+    <div class="panelHead">
+      <div class="title">
+        <div class="avatar" id="avatar">—</div>
+        <div>
+          <div id="tName" class="truncate" style="font-weight:700;"></div>
+          <div class="muted small" id="tMeta"></div>
+        </div>
+      </div>
+      <div class="tools">
+        <span id="alertTag" class="status">—</span>
+        <button class="btn" id="pinBtn" title="Épingler">📌</button>
+        <button class="btn" id="closeBtn" title="Fermer">✕</button>
+      </div>
+    </div>
+    <div class="panelBody">
+      <div class="grid cols-2" style="margin-bottom:12px">
+        <div>
+          <div class="kpiRow" id="kpis"></div>
+        </div>
+        <div class="meta" id="metaTags"></div>
+      </div>
+
+      <div class="row" style="margin-bottom:12px">
+        <div class="card">
+          <h4>RSI Daily <span class="tip" title="RSI(14) sur chandeliers journaliers">ⓘ</span></h4>
+          <div id="rsiD_gauge"></div>
+        </div>
+        <div class="card">
+          <h4>RSI H4 <span class="tip" title="RSI(14) sur chandeliers 4 heures">ⓘ</span></h4>
+          <div id="rsiH4_gauge"></div>
+        </div>
+        <div class="card">
+          <h4>Potentiel (x ATH Mcap) <span class="tip" title="(ATH_mcap / Mcap_actuelle) ; proxy possible via (ATH_prix / Prix)">ⓘ</span></h4>
+          <div id="athx_pill" class="pillLarge">—</div>
+          <div id="ath_sub" class="small muted" style="margin-top:6px">ATH prix —</div>
+        </div>
+      </div>
+
+      <div class="row" style="margin-bottom:12px">
+        <div class="card">
+          <h4>Vol 24h / Mcap (%) <span class="tip" title="(Volume 24h / Market Cap) × 100">ⓘ</span></h4>
+          <div class="bar"><i id="volmc_bar" style="width:0%"></i></div>
+          <div id="volmc_txt" class="small muted" style="margin-top:6px">—</div>
+        </div>
+        <div class="card">
+          <h4>Moy Vol 7j / TVL (%) <span class="tip" title="(Moyenne volumes 7 jours / TVL) × 100">ⓘ</span></h4>
+          <div class="bar"><i id="vol7tvl_bar" style="width:0%"></i></div>
+          <div id="vol7tvl_txt" class="small muted" style="margin-top:6px">—</div>
+        </div>
+        <div class="card">
+          <h4>Variation Vol 7j / 30j <span class="tip" title="MoyVol7j / MoyVol30j ; >1 = accélération des flux">ⓘ</span></h4>
+          <div id="var73_pill" class="pillLarge">—</div>
+        </div>
+      </div>
+
+      <div class="row">
+        <div class="card" style="flex:2">
+          <h4>Résumé</h4>
+          <div id="blurb" class="small muted">—</div>
+        </div>
+        <div class="card" style="flex:1">
+          <h4>Liens</h4>
+          <div class="links" id="links"></div>
+        </div>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const fmt = {
+  num:(n, d=2)=> (n==null || !isFinite(n)) ? '—' : Number(n).toLocaleString('fr-FR',{maximumFractionDigits:d}),
+  kmb:(n)=>{
+    if(n==null || !isFinite(n)) return '—';
+    const abs = Math.abs(n);
+    if(abs>=1e12) return (n/1e12).toFixed(2)+'T';
+    if(abs>=1e9)  return (n/1e9 ).toFixed(2)+'B';
+    if(abs>=1e6)  return (n/1e6 ).toFixed(2)+'M';
+    if(abs>=1e3)  return (n/1e3 ).toFixed(2)+'k';
+    return String(n.toFixed(2));
+  },
+  pct:(n, d=2)=> (n==null || !isFinite(n)) ? '—' : ((n>=0?'+':'') + n.toFixed(d) + '%'),
+  pctNoSign:(n, d=2)=> (n==null || !isFinite(n)) ? '—' : (n.toFixed(d) + '%'),
+  dateFR:(iso)=> {
+    if(!iso) return '—';
+    const dt = new Date(iso);
+    return dt.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' });
+  },
+  isoToYMD:(iso)=>{
+    if(!iso) return null;
+    try{ return iso.slice(0,10); }catch{ return null; }
+  }
 };
-const SHEET_URL_ALERTES = {
-  primary: `https://docs.google.com/spreadsheets/d/${DOC_ID}/export?format=csv&gid=${GID_ALERTES}`,
-  fallback: "https://docs.google.com/spreadsheets/d/e/2PACX-1vRz4G8-f_vw017mpvQy9DOl8BhTahfHL5muaKsu8hNPF1U8mC64sU_ec2rs8aKsSMHTVLdaYCNodMpF/pub?gid=0&single=true&output=csv"
+
+const colors = {
+  mcTvl:(x)=>{
+    if(x==null || !isFinite(x)) return 'chip';
+    if(x<=1.5) return 'chip good';
+    if(x<=5)   return 'chip warn';
+    return 'chip bad';
+  },
+  posNeg:(n)=> n==null? '' : (n>=0?'pos':'neg'),
+  rsiZone:(r)=> {
+    if(r==null) return {text:'—', class:'chip'};
+    if(r<30) return {text: r.toFixed(1)+' (survendu)', class:'chip good'};
+    if(r>70) return {text: r.toFixed(1)+' (suracheté)', class:'chip warn'};
+    return {text: r.toFixed(1), class:'chip'};
+  },
+  var73:(x)=>{
+    if(x==null || !isFinite(x)) return {text:'—', class:'pillLarge'};
+    if(x>1.5) return {text:'↑ ' + x.toFixed(2), class:'pillLarge', colorFrom:'#16c784', colorTo:'#3b82f6'};
+    if(x<0.7) return {text:'↓ ' + x.toFixed(2), class:'pillLarge', colorFrom:'#64748b', colorTo:'#334155'};
+    return {text:x.toFixed(2), class:'pillLarge', colorFrom:'#3b82f6', colorTo:'#16c784'};
+  }
 };
 
-// Venues crypto autorisées (évite les actions/forex) — ajout COINBASE
-const ALLOWED_VENUES = ['BINANCE','MEXC','BYBIT','KUCOIN','CRYPTO','COINBASE'];
-
-const CMC_KEY  = process.env.CMC_API_KEY || "";
-const CMC_BASE = "https://pro-api.coinmarketcap.com/v1";
-const LLAMA_BASE = "https://api.llama.fi";
-
-const THROTTLE_MS = Number(process.env.THROTTLE_MS || 450);
-const MAX_TOKENS_PER_RUN = Number(process.env.MAX_TOKENS_PER_RUN || 50);
-const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
-
-/* ========= UTILS ========= */
-function normalizeSymbolForCMC(asset){
-  if(!asset) return "";
-  const core = String(asset).split(':').pop().trim(); // "BINANCE:AVAXUSDT" → "AVAXUSDT"
-  return core.replace(/USDT|USD|USDC|DAI|PERP|_PERP|\/.*$/i,"").trim().toUpperCase();
+function daysSince(ymd){
+  if(!ymd) return null;
+  const [Y,M,D] = ymd.split('-').map(Number);
+  const d = new Date(Date.UTC(Y, (M-1), D));
+  const now = new Date();
+  const diff = (now - d) / (1000*3600*24);
+  return Math.floor(diff);
 }
-function parseVenue(asset){
-  if(!asset) return "";
-  const parts = String(asset).split(':');
-  return parts.length>1 ? parts[0].trim().toUpperCase() : "";
+
+function setLastUpdate(ts){
+  const el = document.getElementById('lastUpdate');
+  if(!ts){ el.textContent = '—'; return; }
+  const d = new Date(ts);
+  el.textContent = 'MàJ : ' + d.toLocaleString('fr-FR', { timeZone:'Europe/Paris' });
 }
-function parseAssetPair(asset){
-  if(!asset) return "";
-  const parts = String(asset).split(':');
-  return parts.length>1 ? parts[1].trim().toUpperCase() : String(asset).trim().toUpperCase();
+
+function rowHTML(t){
+  const dclass = colors.posNeg(t.d24);
+  const mc_tvl = (t.mc_tvl!=null && isFinite(t.mc_tvl)) ? t.mc_tvl : null;
+  const mcTvlClass = colors.mcTvl(mc_tvl);
+
+  const volmc = t.vol_mc_24!=null ? t.vol_mc_24 : null;
+
+  const rsiD = t.rsi_d!=null ? t.rsi_d.toFixed(1) : '—';
+  const xath = t.x_ath_mc!=null ? 'x'+Number(t.x_ath_mc).toFixed(2) : '—';
+
+  return `<tr data-sym="${t.symbol}">
+    <td class="num">${fmt.dateFR(t.alert_date)}</td>
+    <td class="nowrap"><span class="tag">${t.symbol}</span></td>
+    <td class="num">${fmt.num(t.price, 6)}</td>
+    <td class="num ${dclass}">${fmt.pct(t.d24)}</td>
+    <td class="num">${fmt.kmb(t.mc)}</td>
+    <td class="num">${fmt.kmb(t.tvl)}</td>
+    <td><span class="${mcTvlClass}">${mc_tvl!=null? mc_tvl.toFixed(2) : '—'}</span></td>
+    <td class="num">${rsiD}</td>
+    <td class="num">${xath}</td>
+    <td class="num">${volmc!=null? volmc.toFixed(2)+'%' : '—'}</td>
+  </tr>`;
 }
-function ymdParis(d=new Date()){
-  const dt = (d instanceof Date) ? d : new Date(d);
-  const p = new Intl.DateTimeFormat('fr-FR',{ timeZone:'Europe/Paris', year:'numeric', month:'2-digit', day:'2-digit' })
-            .formatToParts(dt).reduce((o,p)=> (o[p.type]=p.value, o), {});
-  return `${p.year}-${p.month}-${p.day}`;
+
+function mountTable(list){
+  const tb = document.getElementById('tbody');
+  tb.innerHTML = list.map(rowHTML).join('');
 }
-async function fetchCsv(urlOrObj, label){
-  // urlOrObj peut être string (URL directe) ou {primary, fallback}
-  const doFetch = async (u) => {
-    const res = await fetch(u);
-    if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
-    const text = await res.text();
-    return parse(text, { columns:true, skip_empty_lines:true });
-  };
-  if(typeof urlOrObj === 'string'){ return doFetch(urlOrObj); }
-  try { return await doFetch(urlOrObj.primary); }
-  catch(e){ console.warn(`[${label}] primary failed: ${e.message} → trying fallback…`); return await doFetch(urlOrObj.fallback); }
+
+function ensurePanelOpen(open=true){
+  const p = document.getElementById('panel');
+  if(open) p.classList.add('open'); else p.classList.remove('open');
 }
-async function jget(url, label, opts={}){
-  await sleep(THROTTLE_MS);
-  const res = await fetch(url, opts);
-  if(!res.ok) throw new Error(`${label} ${res.status} ${res.statusText}`);
-  return await res.json();
+
+function setAvatar(sym){
+  const el = document.getElementById('avatar');
+  el.textContent = (sym||'—').slice(0,4).toUpperCase();
 }
-function stripHtml(s=''){ return String(s).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim(); }
-function truncate(s, n=160){ if(!s) return ''; const t=s.slice(0,n); return (s.length>n)? t.replace(/\s+\S*$/,'')+'…' : t; }
 
-/* ========= SHEET ========= */
-async function collectFromHistory(){
-  console.log("➡️  Lecture CSV: history…");
-  const recs = await fetchCsv(SHEET_URL_HISTORY, "history");
-  const seen = new Set();
-  const out = [];
+function setMeta(t){
+  const m = document.getElementById('tMeta');
+  const source = t.source ? `src: ${t.source}` : '';
+  const venue = t.venue ? `• ${t.venue}` : '';
+  const pair = t.asset_pair ? `• ${t.asset_pair}` : '';
+  m.textContent = [source, venue, pair].filter(Boolean).join(' ');
+}
 
-  const today = new Date();
-  const cutoff = new Date(today.getTime() - 2*24*3600*1000); // ≤2 jours
-  const cutoffYMD = ymdParis(cutoff);
+function setStatus(dateYMD){
+  const el = document.getElementById('alertTag');
+  const d = daysSince(dateYMD);
+  el.className = 'status';
+  let txt = fmt.dateFR(dateYMD);
+  if(d===0){ el.classList.add('today'); txt = 'Nouvelle alerte'; }
+  else if(d===1){ el.classList.add('yesterday'); txt = 'Hier'; }
+  el.textContent = txt;
+}
 
-  for(const row of recs){
-    const asset = row["asset"] || row["Asset"] || row["ASSET"];
-    if(!asset) continue;
+function kpi(label, valueHTML, sub=''){
+  return `<div class="kpi">
+    <div class="label">${label}</div>
+    <div class="value">${valueHTML}</div>
+    ${sub? `<div class="sub">${sub}</div>`:''}
+  </div>`;
+}
 
-    const venue = parseVenue(asset).toUpperCase();
-    const pair  = parseAssetPair(asset).toUpperCase();
+function buildKpis(t){
+  const d24class = colors.posNeg(t.d24);
+  const mc_tvl_class = colors.mcTvl(t.mc_tvl);
+  const chips = [
+    kpi(`Prix <span class="tip" title="USD">ⓘ</span>`, `<span class="num">${fmt.num(t.price,6)}</span>`, `<span class="${d24class}">${fmt.pct(t.d24)}</span>`),
+    kpi(`Market Cap`, `<span class="num">${fmt.kmb(t.mc)}</span>`, t.rank? `Rang #${t.rank}` : ''),
+    kpi(`TVL`, `<span class="num">${fmt.kmb(t.tvl)}</span>`, t.tvl_source? `<span class="small muted">${t.tvl_source}</span>`:''),
+    kpi(`MC / TVL`, `<span class="${mc_tvl_class}">${t.mc_tvl!=null? t.mc_tvl.toFixed(2):'—'}</span>`, ''),
+  ];
+  document.getElementById('kpis').innerHTML = chips.join('');
+}
 
-    // 🔒 1) uniquement paires finissant par USDT ou USDC (crypto spot)
-    if(!/(USDT|USDC)$/i.test(pair)) continue;
+function badge(txt){ return `<span class="badge">${txt}</span>`; }
 
-    // 🔒 2) uniquement venues crypto whitelists (incl. COINBASE)
-    if(venue && !ALLOWED_VENUES.includes(venue)) continue;
-
-    const symbolCMC = normalizeSymbolForCMC(asset);
-    if(!symbolCMC) continue;
-
-    const dk = (row["DateKey"] || row["datekey"] || row["date"] || "").toString().slice(0,10);
-    if(dk && dk < cutoffYMD) continue;
-
-    if(seen.has(symbolCMC)) continue;
-    seen.add(symbolCMC);
-
-    out.push({
-      symbol_cmc: symbolCMC,
-      venue,
-      asset_pair: pair,
-      alert_date: dk || ymdParis(today),
-      source: "history"
-    });
+function buildMetaTags(t){
+  const arr = [];
+  if(t.sector) arr.push(badge(t.sector));
+  if(Array.isArray(t.tags)) t.tags.forEach(x=> arr.push(badge(x)));
+  if(Array.isArray(t.llama_chains) && t.llama_chains.length){
+    arr.push(badge('Chains: ' + t.llama_chains.slice(0,4).join(', ')));
   }
-  console.log(`✅ ${out.length} tokens (history ≤2j, USDT/USDC only, venues ok)`);
-  return out;
+  document.getElementById('metaTags').innerHTML = arr.join('') || `<span class="muted small">Aucun tag</span>`;
 }
 
-async function collectFromAlertes(){
-  console.log("➡️  Lecture CSV: alertes…");
-  const recs = await fetchCsv(SHEET_URL_ALERTES, "alerte");
-  const out = [];
-  const seen = new Set();
+function gaugeRSI(containerId, value, mode='full'){
+  const host = document.getElementById(containerId);
+  host.innerHTML = '';
+  if(value==null || !isFinite(value)){ host.innerHTML = '<div class="muted">—</div>'; return; }
+  const r = (mode==='semi')? 36 : 28;
+  const size = (mode==='semi')? 180 : 120;
+  const cx = size/2, cy = (mode==='semi')? size-4 : size/2;
+  const strokeBg = '#132043';
+  const stroke = (value<30)? '#16c784' : (value>70? '#f59e0b' : '#3b82f6');
+  const maxAngle = (mode==='semi')? Math.PI : 2*Math.PI;
+  const angle = (value/100) * maxAngle;
 
-  for(const row of recs){
-    const asset = row["asset"] || row["Asset"] || row["ASSET"];
-    if(!asset) continue;
-
-    const venue = parseVenue(asset).toUpperCase();
-    const pair  = parseAssetPair(asset).toUpperCase();
-
-    // 🔒 1) USDT ou USDC only (fin de chaîne)
-    if(!/(USDT|USDC)$/i.test(pair)) continue;
-
-    // 🔒 2) venues crypto whitelists (incl. COINBASE)
-    if(venue && !ALLOWED_VENUES.includes(venue)) continue;
-
-    const symbolCMC = normalizeSymbolForCMC(asset);
-    if(!symbolCMC) continue;
-    if(seen.has(symbolCMC)) continue;
-    seen.add(symbolCMC);
-
-    out.push({
-      symbol_cmc: symbolCMC,
-      venue,
-      asset_pair: pair,
-      alert_date: ymdParis(new Date()), // aujourd’hui
-      source: "alerte"
-    });
+  function polar(ax){
+    const a = (mode==='semi')? (Math.PI + ax) : ax;
+    return [cx + r*Math.cos(a), cy + r*Math.sin(a)];
   }
-  console.log(`✅ ${out.length} tokens (alertes USDT/USDC, venues ok)`);
-  return out;
+  // Path for arc foreground
+  const [sx, sy] = polar(0);
+  const [ex, ey] = polar(angle);
+  const largeArc = angle > Math.PI ? 1 : 0;
+
+  host.innerHTML = `
+    <svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">
+      <circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${strokeBg}" stroke-width="10" ${mode==='semi'?'stroke-dasharray="0 999"':''}
+        ${mode==='semi'?`transform="translate(0,0)"`:""} />
+      <path d="M ${sx} ${sy} A ${r} ${r} 0 ${largeArc} 1 ${ex} ${ey}"
+            fill="none" stroke="${stroke}" stroke-width="10" stroke-linecap="round" />
+      <g font-size="14" font-weight="700" fill="${stroke}">
+        <text x="${cx}" y="${mode==='semi'? (cy-4) : (cy+5)}" text-anchor="middle">${value.toFixed(1)}</text>
+      </g>
+      <g font-size="10" fill="#94a3b8">
+        <text x="${cx}" y="${mode==='semi'? (size-10) : (size-8)}" text-anchor="middle">${mode==='semi'?'H4':'Daily'}</text>
+      </g>
+    </svg>
+  `;
 }
 
-/* ========= CMC (market + info) ========= */
-const CMC_BASE_HEADERS = (CMC_KEY? { 'X-CMC_PRO_API_KEY': CMC_KEY } : {});
-async function cmcQuotesBySymbols(symbols){
-  if(!CMC_KEY){ console.warn("⚠️  CMC_API_KEY manquante."); return {}; }
-  const out = {};
-  for(let i=0;i<symbols.length;i+=50){
-    const batch = symbols.slice(i,i+50);
-    const url = `${CMC_BASE}/cryptocurrency/quotes/latest?symbol=${encodeURIComponent(batch.join(','))}&convert=USD`;
-    try{
-      const data = await jget(url, "CMC quotes", { headers: CMC_BASE_HEADERS });
-      if(data && data.data){
-        Object.entries(data.data).forEach(([sym, obj])=>{
-          out[sym.toUpperCase()] = obj;
-        });
-      }
-    }catch(e){ console.warn('CMC quotes error:', e.message); }
-  }
-  return out;
-}
-async function cmcInfoBySymbols(symbols){
-  if(!CMC_KEY){ console.warn("⚠️  CMC_API_KEY manquante pour info."); return {}; }
-  const out = {};
-  for(let i=0;i<symbols.length;i+=50){
-    const batch = symbols.slice(i,i+50);
-    const url = `${CMC_BASE}/cryptocurrency/info?symbol=${encodeURIComponent(batch.join(','))}`;
-    try{
-      const data = await jget(url, "CMC info", { headers: CMC_BASE_HEADERS });
-      const d = data?.data || {};
-      Object.keys(d).forEach(sym=>{
-        const val = d[sym];
-        const first = Array.isArray(val) ? val[0] : val;
-        if(first){
-          out[sym.toUpperCase()] = {
-            category: first.category || null,
-            description: first.description || null,
-            tags: first.tags || [],
-            urls: first.urls || {},
-            date_added: first.date_added || null,
-            name: first.name || null,
-            slug: first.slug || null
-          };
-        }
-      });
-    }catch(e){ console.warn('CMC info error:', e.message); }
-  }
-  return out;
-}
-
-/* ========= DeFiLlama (TVL + proto meta) ========= */
-let LLAMA_PROTOCOLS_CACHE = null;
-async function llamaProtocols(){
-  if(LLAMA_PROTOCOLS_CACHE) return LLAMA_PROTOCOLS_CACHE;
-  LLAMA_PROTOCOLS_CACHE = await jget(`${LLAMA_BASE}/protocols`, "Llama protocols");
-  return LLAMA_PROTOCOLS_CACHE;
-}
-async function matchTVLAndMeta(symbol){
-  try{
-    const protos = await llamaProtocols();
-    const sym = symbol.toUpperCase();
-    const cand = protos.find(p =>
-      (p.symbol && String(p.symbol).toUpperCase() === sym) ||
-      (p.symbol && String(p.symbol).toUpperCase().startsWith(sym)) ||
-      (p.name && String(p.name).toUpperCase() === sym)
-    ) || protos.find(p => p.name && p.name.toUpperCase().startsWith(sym));
-    if(!cand) return { tvl:null, source:null, category:null, chains:[], protocol_name:null };
-    const tvl = (typeof cand.tvl === 'number') ? cand.tvl : null;
-    const category = cand.category || null;
-    const chains = Array.isArray(cand.chains) ? cand.chains : [];
-    const protocol_name = cand.name || null;
-    return { tvl, source: `protocol:${cand.slug||cand.name}`, category, chains, protocol_name };
-  }catch{
-    return { tvl:null, source:null, category:null, chains:[], protocol_name:null };
-  }
-}
-
-/* ========= CEX KLINES (OHLCV) ========= */
-function secondsToMs(ts){ return ts<1e12 ? ts*1000 : ts; }
-
-// ---- BINANCE ----
-async function klinesBinanceDaily(symbol){
-  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
-  const url = `https://api.binance.com/api/v3/klines?symbol=${s}&interval=1d&limit=1000`;
-  const data = await jget(url, `BINANCE klines ${s}`);
-  return (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
-}
-async function closesBinanceH4(symbol){
-  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
-  const url = `https://api.binance.com/api/v3/klines?symbol=${s}&interval=4h&limit=1000`;
-  const data = await jget(url, `BINANCE klines 4h ${s}`);
-  return (data||[]).map(a=>+a[4]).filter(Number.isFinite);
-}
-
-// ---- MEXC ----
-async function klinesMexcDaily(symbol){
-  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
-  const url = `https://api.mexc.com/api/v3/klines?symbol=${s}&interval=1d&limit=1000`;
-  const data = await jget(url, `MEXC klines ${s}`);
-  return (data||[]).map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]}));
-}
-async function closesMexcH4(symbol){
-  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
-  const url = `https://api.mexc.com/api/v3/klines?symbol=${s}&interval=4h&limit=1000`;
-  const data = await jget(url, `MEXC klines 4h ${s}`);
-  return (data||[]).map(a=>+a[4]).filter(Number.isFinite);
-}
-
-// ---- BYBIT ----
-async function klinesBybitDaily(symbol){
-  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
-  const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${s}&interval=D&limit=1000`;
-  const data = await jget(url, `BYBIT klines ${s}`);
-  const list = data?.result?.list || [];
-  return list.map(a=>({t:+a[0], o:+a[1], h:+a[2], l:+a[3], c:+a[4], v:+a[5]})).reverse();
-}
-async function closesBybitH4(symbol){
-  const s = symbol.replace(/[^A-Z0-9]/g,'').toUpperCase();
-  const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${s}&interval=240&limit=1000`;
-  const data = await jget(url, `BYBIT klines 4h ${s}`);
-  const list = data?.result?.list || [];
-  return list.map(a=>+a[4]).reverse().filter(Number.isFinite);
-}
-
-// ---- KUCOIN ----
-async function klinesKucoinDaily(symbol){
-  const s = symbol.toUpperCase().includes('-') ? symbol.toUpperCase()
-            : symbol.toUpperCase().replace(/(USDT|USDC|USD)$/,'-$1');
-  const url = `https://api.kucoin.com/api/v1/market/candles?type=1day&symbol=${encodeURIComponent(s)}`;
-  const data = await jget(url, `KUCOIN candles ${s}`);
-  const arr = data?.data || []; // plus récent d'abord
-  return arr.map(a=>{
-    // a = [time, open, close, high, low, volume, turnover], time en seconds
-    const t = secondsToMs(+a[0]);
-    return { t, o:+a[1], c:+a[2], h:+a[3], l:+a[4], v:+a[5] };
-  }).reverse();
-}
-async function closesKucoinH4(symbol){
-  const s = symbol.toUpperCase().includes('-') ? symbol.toUpperCase()
-            : symbol.toUpperCase().replace(/(USDT|USDC|USD)$/,'-$1');
-  const url = `https://api.kucoin.com/api/v1/market/candles?type=4hour&symbol=${encodeURIComponent(s)}`;
-  const data = await jget(url, `KUCOIN candles 4h ${s}`);
-  const arr = data?.data || [];
-  return arr.map(a=>+a[2]).reverse().filter(Number.isFinite); // close = index 2
-}
-
-/* ==== Orchestrateurs ==== */
-const SUPPORTED = ['BINANCE','MEXC','BYBIT','KUCOIN'];
-
-function buildCandidates(pair){
-  const base = (pair||'').toUpperCase().replace(/[^A-Z0-9-]/g,'');
-  const set = new Set();
-  set.add(base);
-  if(!/(USDT|USDC|USD)$/.test(base)){
-    set.add(base+'USDT'); set.add(base+'USDC'); set.add(base+'USD');
+function setATH(t){
+  const pill = document.getElementById('athx_pill');
+  const sub  = document.getElementById('ath_sub');
+  if(t.x_ath_mc!=null && isFinite(t.x_ath_mc)){
+    pill.textContent = '× ' + t.x_ath_mc.toFixed(2);
   }else{
-    set.add(base.replace(/(USDT|USDC|USD)$/,'USDT'));
-    set.add(base.replace(/(USDT|USDC|USD)$/,'USDC'));
-    set.add(base.replace(/(USDT|USDC|USD)$/,'USD'));
+    pill.textContent = '—';
   }
-  return Array.from(set);
+  const athTxt = (t.ath!=null && isFinite(t.ath)) ? (t.ath.toFixed(6) + ' $') : '—';
+  const dateTxt = t.ath_date ? fmt.dateFR(t.ath_date) : '—';
+  sub.textContent = `ATH prix ${athTxt} (${dateTxt})`;
 }
 
-async function fetchKlinesDailyAny(preferredVenue, pair){
-  const order = [];
-  const pref = (preferredVenue||'').toUpperCase();
-  if(SUPPORTED.includes(pref)) order.push(pref);
-  SUPPORTED.forEach(v=>{ if(!order.includes(v)) order.push(v); }); // fallback
+function setBars(t){
+  const volmc = document.getElementById('volmc_bar');
+  const volmcTxt = document.getElementById('volmc_txt');
+  const v = (t.vol_mc_24!=null && isFinite(t.vol_mc_24)) ? Math.max(0, Math.min(100, t.vol_mc_24)) : null;
+  volmc.style.width = v!=null ? Math.min(v,100)+'%' : '0%';
+  volmcTxt.textContent = (t.vol_mc_24!=null) ? `${t.vol_mc_24.toFixed(2)} %` : '—';
 
-  const variants = buildCandidates(pair);
+  const vol7tvlBar = document.getElementById('vol7tvl_bar');
+  const vol7tvlTxt = document.getElementById('vol7tvl_txt');
+  const r = (t.vol7_tvl!=null && isFinite(t.vol7_tvl)) ? Math.max(0, Math.min(200, t.vol7_tvl)) : null;
+  vol7tvlBar.style.width = r!=null ? Math.min(r,100)+'%' : '0%';
+  vol7tvlTxt.textContent = (t.vol7_tvl!=null) ? `${t.vol7_tvl.toFixed(2)} %` : '—';
 
-  for(const venue of order){
-    for(const cand of variants){
-      try{
-        if(venue==='BINANCE'){ const rows=await klinesBinanceDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
-        else if(venue==='MEXC'){ const rows=await klinesMexcDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
-        else if(venue==='BYBIT'){ const rows=await klinesBybitDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
-        else if(venue==='KUCOIN'){ const rows=await klinesKucoinDaily(cand); if(rows.length) return { venue, pair:cand, rows }; }
-      }catch(e){ /* try next */ }
-    }
+  const v73 = colors.var73(t.var_vol_7_over_30);
+  const pill = document.getElementById('var73_pill');
+  pill.textContent = v73.text;
+  if(v73.colorFrom){
+    pill.style.background = `linear-gradient(90deg, ${v73.colorFrom}, ${v73.colorTo})`;
+  }else{
+    pill.style.background = 'linear-gradient(180deg,#101731,#0c1226)';
   }
-  return { venue:null, pair:null, rows:[] };
 }
 
-async function fetchClosesH4Any(venueHint, pair){
-  const order = [];
-  const pref = (venueHint||'').toUpperCase();
-  if(SUPPORTED.includes(pref)) order.push(pref);
-  SUPPORTED.forEach(v=>{ if(!order.includes(v)) order.push(v); });
-
-  for(const venue of order){
-    try{
-      if(venue==='BINANCE') { const x=await closesBinanceH4(pair); if(x.length) return x; }
-      if(venue==='MEXC')    { const x=await closesMexcH4(pair);    if(x.length) return x; }
-      if(venue==='BYBIT')   { const x=await closesBybitH4(pair);   if(x.length) return x; }
-      if(venue==='KUCOIN')  { const x=await closesKucoinH4(pair);  if(x.length) return x; }
-    }catch(e){/* next */}
+function setBlurb(t){
+  const el = document.getElementById('blurb');
+  if(t.blurb){ el.textContent = t.blurb; }
+  else{
+    const sec = t.sector ? `Secteur: ${t.sector}. ` : '';
+    const proto = t.protocol_name ? `Protocole: ${t.protocol_name}. ` : '';
+    const chains = (t.llama_chains && t.llama_chains.length)? `Chains: ${t.llama_chains.slice(0,3).join(', ')}.` : '';
+    const fallback = (sec||proto||chains) ? (sec+proto+chains) : 'Pas de descriptif.';
+    el.textContent = fallback;
   }
-  return [];
 }
 
-function computeRSI(closes, period=14){
-  if(!closes || closes.length < period+1) return null;
-  const deltas = [];
-  for(let i=1;i<closes.length;i++) deltas.push(closes[i]-closes[i-1]);
-  let gain=0, loss=0;
-  for(let i=0;i<period;i++){ const d=deltas[i]; if(d>0) gain+=d; else loss-=d; }
-  gain/=period; loss/=period;
-  for(let i=period;i<deltas.length;i++){
-    const d=deltas[i]; const g=d>0?d:0; const l=d<0?-d:0;
-    gain=(gain*(period-1)+g)/period; loss=(loss*(period-1)+l)/period;
-  }
-  if(loss===0) return 100;
-  const rs = gain/loss;
-  return 100 - (100/(1+rs));
+function setLinks(t){
+  const el = document.getElementById('links');
+  const items = [];
+  if(t.website)    items.push(`<a class="iconBtn" href="${t.website}" target="_blank" rel="noopener" title="Site">🌐</a>`);
+  if(t.twitter)    items.push(`<a class="iconBtn" href="${t.twitter}" target="_blank" rel="noopener" title="X/Twitter">𝕏</a>`);
+  if(t.whitepaper) items.push(`<a class="iconBtn" href="${t.whitepaper}" target="_blank" rel="noopener" title="Whitepaper">📄</a>`);
+  el.innerHTML = items.join('') || `<span class="muted small">Aucun lien</span>`;
 }
 
-/* ========= ENRICH ========= */
-async function enrich(tokens){
-  /* 1) CMC quotes + info */
-  const symbols = tokens.map(t=>t.symbol_cmc);
-  const quotes = await cmcQuotesBySymbols(symbols);
-  const infos  = await cmcInfoBySymbols(symbols);
+function openDetails(t){
+  ensurePanelOpen(true);
+  document.getElementById('tName').textContent = (t.name || t.symbol || '—') + (t.symbol? ` (${t.symbol})`:'');
+  setAvatar(t.symbol);
+  setMeta(t);
+  setStatus(t.alert_date);
 
-  tokens.forEach(t=>{
-    const q = quotes[t.symbol_cmc?.toUpperCase()];
-    const usd = q?.quote?.USD;
-    if(usd){
-      t.price = usd.price ?? null;
-      t.mc    = usd.market_cap ?? null;
-      t.rank  = q.cmc_rank ?? null;
-      t.d24   = usd.percent_change_24h ?? null;
-      t.d7    = usd.percent_change_7d ?? null;
-      t.d30   = usd.percent_change_30d ?? null;
-      t.volume_24h = usd.volume_24h ?? null;
-      t.circulating_supply = q.circulating_supply ?? null;
-      t.total_supply = q.total_supply ?? null;
-      t.max_supply   = q.max_supply ?? null;
-      t.fdv = usd.fully_diluted_market_cap ?? null;
-      t.vol_mc_24 = (t.volume_24h && t.mc) ? (t.volume_24h / t.mc * 100) : null;
-    } else {
-      t.price=t.mc=t.rank=t.d24=t.d7=t.d30=t.volume_24h=t.fdv=null;
-      t.circulating_supply=t.total_supply=t.max_supply=null;
-      t.vol_mc_24=null;
-    }
-    // contexte (CMC info)
-    const info = infos[t.symbol_cmc?.toUpperCase()];
-    if(info){
-      const urls = info.urls || {};
-      t.sector = info.category || null;
-      t.tags = Array.isArray(info.tags) ? info.tags.slice(0,3) : [];
-      const desc = stripHtml(info.description||'');
-      t.blurb = desc ? truncate(desc, 160) : null;
-      t.website = Array.isArray(urls.website) && urls.website[0] ? urls.website[0] : null;
-      t.twitter = Array.isArray(urls.twitter) && urls.twitter[0] ? urls.twitter[0] : null;
-      t.whitepaper = Array.isArray(urls.technical_doc) && urls.technical_doc[0] ? urls.technical_doc[0] : null;
-      t.date_added = info.date_added || null;
-      t.name = info.name || null;
-      t.slug = info.slug || null;
-    }else{
-      t.sector=null; t.tags=[]; t.blurb=null; t.website=null; t.twitter=null; t.whitepaper=null; t.date_added=null; t.name=null; t.slug=null;
-    }
+  buildKpis(t);
+  buildMetaTags(t);
 
-    // placeholders
-    t.rsi_d=null; t.rsi_h4=null;
-    t.ath=null; t.ath_date=null;
-    t.vol7_avg=null; t.vol30_avg=null; t.var_vol_7_over_30=null; t.vol7_tvl=null;
-    t.ath_mc=null; t.x_ath_mc=null; t.price_target_ath_mc=null;
-    t.tvl=null; t.tvl_source=null; t.mc_tvl=null;
-    t.llama_category=null; t.llama_chains=[]; t.protocol_name=null;
-  });
+  // Gauges
+  gaugeRSI('rsiD_gauge', (t.rsi_d!=null? t.rsi_d : null), 'full');
+  gaugeRSI('rsiH4_gauge', (t.rsi_h4!=null? t.rsi_h4 : null), 'semi');
 
-  /* 2) TVL (DeFiLlama) + meta fallback */
-  for(const t of tokens){
-    try{
-      const { tvl, source, category, chains, protocol_name } = await matchTVLAndMeta(t.symbol_cmc);
-      t.tvl = tvl; t.tvl_source = source;
-      t.mc_tvl = (t.mc && t.tvl) ? (t.mc / t.tvl) : null;
-      t.llama_category = category || null;
-      t.llama_chains = chains || [];
-      t.protocol_name = protocol_name || null;
+  setATH(t);
+  setBars(t);
+  setBlurb(t);
+  setLinks(t);
+}
 
-      if(!t.sector && category) t.sector = category;
-      if(!t.blurb && protocol_name){
-        t.blurb = truncate(`${protocol_name} — protocole ${category || 'DeFi'} sur ${ (chains||[]).slice(0,2).join(', ') }`, 160);
-      }
-    }catch{ /* ignore */ }
-    await sleep(120);
-  }
-
-  /* 3) Klines → RSI/ATH/vol7/30 */
-  for(const t of tokens){
-    try{
-      const { venue:usedVenue, pair:usedPair, rows:daily } =
-        await fetchKlinesDailyAny(t.venue, t.asset_pair);
-
-      if(daily && daily.length){
-        const closes = daily.map(r=>+r.c).filter(Number.isFinite);
-        const vols   = daily.map(r=>+r.v).filter(Number.isFinite);
-
-        // RSI D
-        t.rsi_d = computeRSI(closes.slice(-200), 14);
-
-        // ATH (prix + date)
-        let ath = -Infinity, athTs=null;
-        for(const r of daily){ if(r.h>ath){ ath=r.h; athTs=r.t; } }
-        t.ath = Number.isFinite(ath) ? ath : null;
-        t.ath_date = (athTs!=null) ? new Date(athTs).toISOString().slice(0,10) : null;
-
-        // Moy. volumes 7j / 30j et Var
-        const last7 = vols.slice(-7);
-        const last30= vols.slice(-30);
-        const avg7  = last7.length ? last7.reduce((a,b)=>a+b,0)/last7.length : null;
-        const avg30 = last30.length? last30.reduce((a,b)=>a+b,0)/last30.length: null;
-        t.vol7_avg = avg7;
-        t.vol30_avg = avg30;
-        t.var_vol_7_over_30 = (avg7 && avg30) ? (avg7/avg30) : null;
-        t.vol7_tvl = (avg7 && t.tvl) ? (avg7 / t.tvl * 100) : null;
-
-        // RSI H4
-        try{
-          const h4closes = await fetchClosesH4Any(usedVenue || t.venue, usedPair || t.asset_pair);
-          t.rsi_h4 = computeRSI(h4closes.slice(-300), 14);
-        }catch{ t.rsi_h4 = null; }
-
-        // ATH Mcap & x
-        if(t.ath!=null && t.price!=null && t.mc!=null){
-          const ath_mc = (t.circulating_supply!=null)
-            ? (t.ath * t.circulating_supply)
-            : (t.mc * (t.ath / t.price));
-          t.ath_mc = ath_mc ?? null;
-          t.x_ath_mc = (ath_mc && t.mc) ? (ath_mc / t.mc) : ((t.price && t.ath) ? (t.ath / t.price) : null);
-          t.price_target_ath_mc = (t.x_ath_mc && t.price) ? (t.price * t.x_ath_mc) : null;
-        }
-      } else {
-        console.warn(`ℹ️  Pas de klines pour ${t.symbol_cmc} (venue=${t.venue}, pair=${t.asset_pair})`);
-      }
-    }catch(e){
-      console.warn(`Klines enrich fail ${t.symbol_cmc}:`, e.message);
-    }
-  }
-
-  // Arrondis doux
-  const round = (n, d=6)=> (typeof n==='number' && isFinite(n)) ? +n.toFixed(d) : n;
-  tokens.forEach(t=>{
-    ['price','mc','tvl','mc_tvl','vol_mc_24',
-     'vol7_avg','vol30_avg','var_vol_7_over_30','vol7_tvl',
-     'rsi_d','rsi_h4','ath','ath_mc','x_ath_mc','price_target_ath_mc'
-    ].forEach(k=>{
-      if(t[k]!=null) t[k] = round(t[k], (k==='mc_tvl'||k==='x_ath_mc'||k==='var_vol_7_over_30')?2:6);
+function bindRowClicks(list){
+  const rows = Array.from(document.querySelectorAll('#tbody tr'));
+  rows.forEach((tr, idx)=>{
+    tr.addEventListener('click', ()=>{
+      const sym = tr.getAttribute('data-sym');
+      const t = list.find(x=>x.symbol===sym);
+      if(t) openDetails(t);
     });
   });
-
-  return tokens;
 }
 
-/* ========= MAIN ========= */
-(async function main(){
-  let tokens = [];
-  try{
-    const baseHistory = await collectFromHistory();
-    const baseAlertes = await collectFromAlertes();
+/* Panel interactions */
+(function setupPanel(){
+  const panel = document.getElementById('panel');
+  const pinBtn = document.getElementById('pinBtn');
+  const closeBtn = document.getElementById('closeBtn');
+  let pinned = false;
 
-    // fusion sans doublon (priorité history)
-    const merged = [...baseHistory];
-    const seen = new Set(baseHistory.map(x=>x.symbol_cmc));
-    for(const t of baseAlertes){
-      if(!seen.has(t.symbol_cmc)){
-        merged.push(t);
-        seen.add(t.symbol_cmc);
-      }
-    }
+  pinBtn.addEventListener('click', ()=>{
+    pinned = !pinned;
+    pinBtn.classList.toggle('active', pinned);
+  });
+  closeBtn.addEventListener('click', ()=> ensurePanelOpen(false));
 
-    // limiter le volume total si besoin
-    const slice = merged.slice(0, MAX_TOKENS_PER_RUN);
+  // Redimensionner
+  const handle = document.getElementById('handle');
+  let isDrag=false;
+  handle.addEventListener('mousedown', (e)=>{
+    isDrag = true; document.body.style.userSelect='none';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e)=>{
+    if(!isDrag) return;
+    const wrap = document.getElementById('layout');
+    const rect = wrap.getBoundingClientRect();
+    // largeur droite = de la souris jusqu’au bord droit → on ajuste la colonne 2 via inline style
+    const rightWidth = Math.min(Math.max(320, rect.right - e.clientX), 560);
+    wrap.style.gridTemplateColumns = `1fr ${rightWidth}px`;
+  });
+  window.addEventListener('mouseup', ()=>{ isDrag=false; document.body.style.userSelect='auto'; });
 
-    tokens = slice.map(x=>({
-      symbol: x.symbol_cmc,
-      symbol_cmc: x.symbol_cmc,
-      venue: x.venue,
-      asset_pair: x.asset_pair,
-      alert_date: x.alert_date,
-      source: x.source,
-
-      // champs enrichis ensuite
-      price:null, d24:null, d7:null, d30:null, d1y:null,
-      mc:null, tvl:null, mc_tvl:null,
-      volume_24h:null, vol_mc_24:null,
-      vol7_avg:null, vol30_avg:null, vol7_tvl:null, var_vol_7_over_30:null,
-      rsi_d:null, rsi_h4:null,
-      ath:null, ath_date:null,
-      ath_mc:null, x_ath_mc:null, price_target_ath_mc:null,
-      circulating_supply:null, total_supply:null, max_supply:null, fdv:null, rank:null,
-
-      // contexte
-      sector:null, tags:[], blurb:null, website:null, twitter:null, whitepaper:null, date_added:null,
-      llama_category:null, llama_chains:[], protocol_name:null, name:null, slug:null,
-
-      tvl_source:null
-    }));
-
-    const enriched = await enrich(tokens);
-
-    // 🔽 Tri par date décroissante (plus récents en haut)
-    enriched.sort((a,b) => (b.alert_date || "").localeCompare(a.alert_date || ""));
-
-    const data = { updated_at: new Date().toISOString(), tokens: enriched };
-    fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
-    console.log(`✅ data.json écrit (${enriched.length} tokens).`);
-  }catch(e){
-    console.error("❌ Erreur:", e);
-    const data = { updated_at: new Date().toISOString(), tokens: tokens || [] };
-    fs.writeFileSync('data.json', JSON.stringify(data, null, 2));
-    process.exit(1);
-  }
+  // Fermer le panel si on clique ailleurs (et non épinglé)
+  document.addEventListener('click', (e)=>{
+    if(!panel.classList.contains('open') || pinned) return;
+    const isInside = panel.contains(e.target);
+    const isRow = e.target.closest('#tbody tr');
+    if(!isInside && !isRow){ ensurePanelOpen(false); }
+  });
 })();
+
+async function main(){
+  const res = await fetch('data.json', {cache:'no-cache'});
+  const data = await res.json();
+  setLastUpdate(data.updated_at);
+
+  const list = Array.isArray(data.tokens)? data.tokens : [];
+
+  // Tableau
+  mountTable(list);
+  bindRowClicks(list);
+
+  // Auto-ouvrir le premier (si dispo)
+  if(list.length) openDetails(list[0]);
+}
+main();
+</script>
+</body>
+</html>
