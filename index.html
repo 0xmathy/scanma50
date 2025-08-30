@@ -6,69 +6,112 @@
 <title>Scan Ma50 — Screener</title>
 <style>
   :root{
-    --bg: #0b0f1a; --bg-soft:#0f1524; --panel:#0d1322; --card:#0e1526;
+    --bg:#0b0f1a; --bg-soft:#0f1524; --panel:#0d1322; --card:#0e1526;
     --muted:#8ea0bf; --text:#e8eef9; --accent:#3b82f6; --good:#16c784;
     --bad:#ea3943; --warn:#f59e0b; --chip:#111a2f; --border:#1b2540;
-    --shadow: 0 8px 24px rgba(0,0,0,.35);
+    --shadow:0 8px 24px rgba(0,0,0,.35);
   }
   *{box-sizing:border-box}
-  body{ margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial; background:linear-gradient(180deg,#081022 0%, #070b16 100%) fixed; color:var(--text); }
-  header{ position:sticky; top:0; z-index:10; backdrop-filter: blur(8px); background: rgba(8,12,22,.7); border-bottom:1px solid var(--border); }
+  body{
+    margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial;
+    background:radial-gradient(1000px 600px at 20% -10%, rgba(59,130,246,.15), transparent 60%),
+               radial-gradient(900px 500px at 90% -20%, rgba(22,199,132,.12), transparent 60%),
+               linear-gradient(180deg,#081022 0%, #070b16 100%) fixed;
+    color:var(--text);
+  }
+  header{
+    position:sticky; top:0; z-index:10; backdrop-filter: blur(8px);
+    background: linear-gradient(90deg, rgba(8,12,22,.8), rgba(17,27,52,.6));
+    border-bottom:1px solid var(--border);
+  }
   .hdr{ max-width:1200px; margin:auto; padding:14px 16px; display:flex; align-items:center; gap:12px; }
   .hdr h1{ margin:0; font-size:18px; letter-spacing:.3px }
   .muted{ color:var(--muted) }
   .pill{ display:inline-flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--border); border-radius:999px; background:var(--chip); font-size:12px; color:var(--text) }
 
-  .wrap{ max-width:1200px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns: 1fr minmax(320px, 0); gap:16px; }
+  .wrap{ max-width:1200px; margin:20px auto; padding:0 16px; display:grid; grid-template-columns: 1fr minmax(340px, 0); gap:16px; }
   @media (max-width: 980px){ .wrap{ grid-template-columns:1fr } }
 
+  /* Table */
   .tableWrap{ background: var(--bg-soft); border:1px solid var(--border); border-radius:14px; box-shadow: var(--shadow); overflow:auto; }
-  table{ width:100%; border-collapse:separate; border-spacing:0; min-width:880px; }
-  thead th{ position:sticky; top:0; background:linear-gradient(180deg,#0f1628 0%, #0c1324 100%); border-bottom:1px solid var(--border); font-weight:600; font-size:12px; text-align:left; padding:10px 12px; color:#c9d7f2; }
+  table{ width:100%; border-collapse:separate; border-spacing:0; min-width:900px; }
+  thead th{
+    position:sticky; top:0; background:linear-gradient(180deg,#0f1628 0%, #0c1324 100%);
+    border-bottom:1px solid var(--border); font-weight:600; font-size:12px; text-align:left; padding:10px 12px; color:#c9d7f2;
+  }
   tbody td{ padding:10px 12px; border-bottom:1px solid #0f1830; font-size:13px; vertical-align:middle;}
+  tbody tr{ transition:background .15s ease, box-shadow .15s ease }
   tbody tr:hover{ background:#0e162b; }
+  .rowDot{
+    width:6px; height:6px; border-radius:50%; margin-right:8px; display:inline-block;
+    box-shadow:0 0 0 3px rgba(255,255,255,.04);
+  }
+  .rowDot.pos{ background:var(--good) }
+  .rowDot.neg{ background:var(--bad) }
+
   .tag{font-size:11px; padding:2px 8px; border-radius:999px; border:1px solid var(--border); background:#0b1224; color:#cfe0ff}
   .num{ font-variant-numeric: tabular-nums; }
-  .pos{ color: var(--good); }
-  .neg{ color: var(--bad); }
+  .pos{ color: var(--good); } .neg{ color: var(--bad); }
 
   .chip{ display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border-radius:10px; background:var(--chip); border:1px solid var(--border); font-size:12px; }
   .chip.good{ border-color: rgba(22,199,132,.35); background: rgba(22,199,132,.08); }
   .chip.warn{ border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.08); }
   .chip.bad{  border-color: rgba(234,57,67,.35);  background: rgba(234,57,67,.08); }
 
-  .panel{ position:relative; background:var(--panel); border:1px solid var(--border); border-radius:14px; box-shadow: var(--shadow); min-height:320px; display:none; flex-direction:column; overflow:hidden; }
+  /* Panel */
+  .panel{ position:relative; background:var(--panel); border:1px solid var(--border); border-radius:14px; box-shadow: var(--shadow); min-height:340px; display:none; flex-direction:column; overflow:hidden; }
   .panel.open{ display:flex; }
-  .panelHead{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 12px; border-bottom:1px solid var(--border); background:#0f1629;}
+  .panelHead{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:12px 12px; border-bottom:1px solid var(--border); background:linear-gradient(90deg,#0f1629,#0f1c36);}
   .title{ display:flex; align-items:center; gap:12px; }
-  .avatar{ width:34px; height:34px; border-radius:8px; background:linear-gradient(135deg,#2b3759,#101a35); display:grid; place-items:center; font-weight:700; color:#bcd3ff; border:1px solid var(--border); }
+  .avatar{
+    width:38px; height:38px; border-radius:10px; background:linear-gradient(135deg,#2b3759,#101a35);
+    display:grid; place-items:center; font-weight:800; color:#bcd3ff; border:1px solid var(--border);
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,.04);
+  }
   .panelBody{ padding:12px; overflow:auto; }
   .grid{ display:grid; gap:12px; }
   .grid.cols-2{ grid-template-columns: 1fr 1fr; }
   @media (max-width: 980px){ .grid.cols-2{ grid-template-columns: 1fr; } }
 
-  .kpiRow{ display:grid; grid-template-columns: repeat(4, minmax(140px,1fr)); gap:8px; }
-  @media (max-width: 980px){ .kpiRow{ grid-template-columns: repeat(2, minmax(140px,1fr)); } }
-  .kpi{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:10px 12px; display:flex; flex-direction:column; gap:4px; }
+  /* KPI cards */
+  .kpiRow{ display:grid; grid-template-columns: repeat(4, minmax(150px,1fr)); gap:10px; }
+  @media (max-width: 980px){ .kpiRow{ grid-template-columns: repeat(2, minmax(150px,1fr)); } }
+  .kpi{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; display:flex; flex-direction:column; gap:6px; position:relative; overflow:hidden; }
   .kpi .label{ font-size:11px; color:var(--muted); display:flex; align-items:center; gap:6px;}
-  .kpi .value{ font-size:15px; font-weight:700; }
+  .kpi .value{ font-size:16px; font-weight:800; }
   .kpi .sub{ font-size:12px; color:var(--muted) }
+  .kpi .corner{
+    position:absolute; right:-16px; top:-16px; width:64px; height:64px; border-radius:50%;
+    background: radial-gradient(closest-side, rgba(59,130,246,.18), transparent 70%);
+    pointer-events:none;
+  }
 
+  /* Analytics compact */
   .row{ display:flex; gap:12px; flex-wrap:wrap; }
-  .card{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; flex:1 1 220px; min-width:220px; }
+  .card{ background:var(--card); border:1px solid var(--border); border-radius:12px; padding:12px; flex:1 1 230px; min-width:230px; }
   .card h4{ margin:0 0 8px 0; font-size:12px; color:#cfe0ff; letter-spacing:.2px }
   .bar{ height:8px; background:#0b1328; border:1px solid var(--border); border-radius:999px; overflow:hidden; }
   .bar > i{ display:block; height:100%; background:linear-gradient(90deg,#3b82f6,#16c784); width:0% }
+  .pillLarge{ display:flex; align-items:center; justify-content:center; gap:8px; padding:8px 10px; border-radius:10px; border:1px solid var(--border); background:linear-gradient(180deg,#101731,#0c1226); font-weight:800; font-size:14px; }
 
-  .pillLarge{ display:flex; align-items:center; justify-content:center; gap:8px; padding:8px 10px; border-radius:10px; border:1px solid var(--border); background:linear-gradient(180deg,#101731,#0c1226); font-weight:700; font-size:14px; }
+  /* MC/TVL donut */
+  .donut{ width:54px; height:54px; position:relative; }
+  .donut svg{ transform:rotate(-90deg) }
+  .donut .center{ position:absolute; inset:0; display:grid; place-items:center; font-size:11px; color:#cfe0ff; }
 
   .rsiChips{ display:flex; gap:8px; flex-wrap:wrap; }
   .rsiChip{ padding:4px 8px; border-radius:10px; border:1px solid var(--border); background:#0f1730; font-size:12px; }
 
   .meta{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
   .badge{ font-size:11px; padding:6px 8px; border-radius:999px; background:#0f1830; border:1px solid var(--border) }
-  .links{ display:flex; gap:8px; }
-  .iconBtn{ display:grid; place-items:center; width:34px; height:34px; border-radius:10px; background:#0f1730; border:1px solid var(--border); color:#cfe0ff; text-decoration:none; }
+
+  /* Links row */
+  .links{ display:flex; gap:8px; flex-wrap:wrap; }
+  .iconBtn{
+    display:inline-flex; align-items:center; gap:8px; padding:8px 10px; border-radius:10px; background:#0f1730; border:1px solid var(--border);
+    color:#cfe0ff; text-decoration:none; font-size:12px;
+  }
+  .iconBtn .ic{ width:16px; height:16px; display:inline-grid; place-items:center; }
 
   .handle{ position:absolute; top:0; left:-6px; width:12px; height:100%; cursor:col-resize; background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,.04) 50%, transparent 100%); }
   .tools{ display:flex; align-items:center; gap:8px;}
@@ -81,6 +124,7 @@
   .status.yesterday{ background: rgba(22,199,132,.12); border-color: rgba(22,199,132,.35); color:#b9f4d5 }
 
   .nowrap{ white-space:nowrap } .truncate{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100% } .small{ font-size:12px }
+
   details.help{ margin-top:12px; background:#0c1429; border:1px solid var(--border); border-radius:10px; padding:10px 12px; }
   details.help summary{ cursor:pointer; color:#cfe0ff; font-weight:600; }
   .help p{ margin:8px 0; color:#b6c7e6; font-size:12px; }
@@ -121,7 +165,7 @@
       <div class="title">
         <div class="avatar" id="avatar">—</div>
         <div>
-          <div id="tName" class="truncate" style="font-weight:700;"></div>
+          <div id="tName" class="truncate" style="font-weight:800;"></div>
           <div class="muted small" id="tMeta"></div>
         </div>
       </div>
@@ -156,7 +200,7 @@
       <!-- RSI compact + xATH -->
       <div class="row" style="margin-bottom:12px">
         <div class="card" style="flex:2">
-          <h4>RSI (compact) <span class="tip" title="Momentum de prix. <30 = survendu (rebond possible) ; >70 = suracheté (risque de correction).">ⓘ</span></h4>
+          <h4>RSI (compact) <span class="tip" title="Momentum de prix. <30 = survendu ; >70 = suracheté.">ⓘ</span></h4>
           <div class="rsiChips">
             <span id="rsiD_chip" class="rsiChip">Daily —</span>
             <span id="rsiH4_chip" class="rsiChip">H4 —</span>
@@ -182,15 +226,13 @@
         </div>
       </div>
 
-      <!-- Aide & lecture rapide -->
+      <!-- Légende rapide -->
       <details class="help">
-        <summary>📘 Aide & lecture</summary>
-        <p><b>MC/TVL</b> — Mesure si la valorisation est soutenue par la liquidité. <i>Bas = plus efficient ; haut = sur-valorisation potentielle.</i></p>
-        <p><b>Vol 24h / Mcap</b> — Intensité de trading par rapport à la taille du projet. <i>Haut = très actif ; bas = peu de flux.</i></p>
-        <p><b>Moy Vol 7j / TVL</b> — Flux moyen récent vs valeur verrouillée. <i>Haut = profil plus spéculatif ; bas = profil plus ‘calme’.</i></p>
-        <p><b>Var Vol 7j/30j</b> — Tendance d’accélération des volumes. <i>&gt;1 = montée en puissance ; &lt;1 = essoufflement.</i></p>
-        <p><b>x ATH Mcap</b> — Potentiel théorique de retour aux sommets historiques. <i>À contextualiser avec le cycle et la tokenomics.</i></p>
-        <p><b>RSI</b> — Indice de momentum. <i>&lt;30 = survendu ; &gt;70 = suracheté.</i></p>
+        <summary>🎯 Légende & lecture</summary>
+        <p><b>MC/TVL :</b> soutenabilité de la valo par la liquidité — bas = efficient ; haut = tendu.</p>
+        <p><b>Flux (Vol/Mcap, Vol7/TVL, 7/30j):</b> intensité et accélération des échanges — utile pour capter l’intérêt du marché.</p>
+        <p><b>x ATH Mcap :</b> éloignement des sommets historiques — à contextualiser avec cycle & tokenomics.</p>
+        <p><b>RSI :</b> momentum prix — &lt;30: survendu ; &gt;70: suracheté.</p>
       </details>
     </div>
   </aside>
@@ -209,7 +251,6 @@ const fmt = {
     return String(n.toFixed(2));
   },
   pct:(n, d=2)=> (n==null || !isFinite(n)) ? '—' : ((n>=0?'+':'') + n.toFixed(d) + '%'),
-  pctNoSign:(n, d=2)=> (n==null || !isFinite(n)) ? '—' : (n.toFixed(d) + '%'),
   dateFR:(iso)=> { if(!iso) return '—'; const dt = new Date(iso); return dt.toLocaleDateString('fr-FR', { timeZone: 'Europe/Paris' }); }
 };
 
@@ -221,30 +262,27 @@ function setLastUpdate(ts){
 }
 
 const colors = {
-  mcTvl:(x)=>{
+  mcTvlClass:(x)=>{
     if(x==null || !isFinite(x)) return 'chip';
     if(x<=1.5) return 'chip good';
     if(x<=5)   return 'chip warn';
     return 'chip bad';
   },
   posNeg:(n)=> n==null? '' : (n>=0?'pos':'neg'),
-  rsiLabel:(r, label)=>{
-    if(r==null || !isFinite(r)) return `${label} —`;
-    if(r<30) return `${label} ${r.toFixed(1)} (survendu)`;
-    if(r>70) return `${label} ${r.toFixed(1)} (suracheté)`;
-    return `${label} ${r.toFixed(1)}`;
-  }
 };
 
+/* ---------- Table ---------- */
 function rowHTML(t){
   const dclass = colors.posNeg(t.d24);
   const mc_tvl = (t.mc_tvl!=null && isFinite(t.mc_tvl)) ? t.mc_tvl : null;
-  const mcTvlClass = colors.mcTvl(mc_tvl);
+  const mcTvlClass = colors.mcTvlClass(mc_tvl);
   const volmc = t.vol_mc_24!=null ? t.vol_mc_24 : null;
   const xath = t.x_ath_mc!=null ? 'x'+Number(t.x_ath_mc).toFixed(2) : '—';
 
+  const dotCls = (t.d24==null)? '' : (t.d24>=0?'pos':'neg');
+
   return `<tr data-sym="${t.symbol}">
-    <td class="num">${fmt.dateFR(t.alert_date)}</td>
+    <td class="num"><span class="rowDot ${dotCls}"></span>${fmt.dateFR(t.alert_date)}</td>
     <td class="nowrap"><span class="tag">${t.symbol}</span></td>
     <td class="num">${fmt.num(t.price, 6)}</td>
     <td class="num ${dclass}">${fmt.pct(t.d24)}</td>
@@ -255,41 +293,75 @@ function rowHTML(t){
     <td class="num">${volmc!=null? volmc.toFixed(2)+'%' : '—'}</td>
   </tr>`;
 }
-
 function mountTable(list){ document.getElementById('tbody').innerHTML = list.map(rowHTML).join(''); }
 
+/* ---------- Panel ---------- */
 function ensurePanelOpen(open=true){ const p = document.getElementById('panel'); if(open) p.classList.add('open'); else p.classList.remove('open'); }
 function setAvatar(sym){ document.getElementById('avatar').textContent = (sym||'—').slice(0,4).toUpperCase(); }
 function setMeta(t){
   const m = document.getElementById('tMeta');
-  const source = t.source ? `src: ${t.source}` : '';
-  const venue = t.venue ? `• ${t.venue}` : '';
-  const pair = t.asset_pair ? `• ${t.asset_pair}` : '';
-  m.textContent = [source, venue, pair].filter(Boolean).join(' ');
+  const parts = [];
+  if(t.source) parts.push(`src: ${t.source}`);
+  if(t.venue) parts.push(`• ${t.venue}`);
+  if(t.asset_pair) parts.push(`• ${t.asset_pair}`);
+  m.textContent = parts.join(' ');
 }
 
-function kpi(label, valueHTML, sub=''){
+/* KPI card builder */
+function kpi(label, valueHTML, sub='', extraRightHTML=''){
   return `<div class="kpi">
-    <div class="label">${label}</div>
+    <div class="corner"></div>
+    <div style="display:flex; align-items:center; justify-content:space-between; gap:8px">
+      <div class="label">${label}</div>
+      ${extraRightHTML||''}
+    </div>
     <div class="value">${valueHTML}</div>
     ${sub? `<div class="sub">${sub}</div>`:''}
   </div>`;
 }
 
+/* Simple donut (MC/TVL normalization up to 10) */
+function donutHTML(val){
+  if(val==null || !isFinite(val)) return '';
+  const max = 10; // clamp visuel
+  const x = Math.max(0, Math.min(max, val));
+  const pct = (x / max);
+  const R=24, C=2*Math.PI*R;
+  const stroke = pct*C;
+  const cls = colors.mcTvlClass(val).split(' ')[1] || 'chip';
+  const col = cls==='good' ? '#16c784' : (cls==='warn' ? '#f59e0b' : '#ea3943');
+  return `<div class="donut" title="Lecture visuelle MC/TVL (clamp à 10)">
+    <svg width="54" height="54" viewBox="0 0 54 54">
+      <circle cx="27" cy="27" r="${R}" fill="none" stroke="#0d1a35" stroke-width="8"/>
+      <circle cx="27" cy="27" r="${R}" fill="none" stroke="${col}" stroke-width="8"
+              stroke-dasharray="${stroke} ${C-stroke}" stroke-linecap="round"/>
+    </svg>
+    <div class="center">${val.toFixed(1)}</div>
+  </div>`;
+}
+
 function buildKpis(t){
   const d24class = colors.posNeg(t.d24);
-  const mc_tvl_class = colors.mcTvl(t.mc_tvl);
+  const mc_tvl_cls = colors.mcTvlClass(t.mc_tvl);
 
-  // tooltips pédagogiques
   const tipPrice = `Cours actuel en USD. Sert de base aux ratios (ex. x ATH, variations).`;
   const tipTVL   = `Valeur verrouillée sur le protocole. Plus c’est élevé, plus la traction ‘on-chain’ est forte.`;
-  const tipMCTVL = `Valorisation vs liquidité verrouillée. Bas = soutenu ; haut = risque de sur-valorisation.`;
+  const tipMCTVL = `Valorisation vs liquidité verrouillée. Bas = soutenu ; haut = sur-valorisation potentielle.`;
+
+  const mcTvlDonut = (t.mc_tvl!=null && isFinite(t.mc_tvl)) ? donutHTML(t.mc_tvl) : '';
 
   const chips = [
-    kpi(`Prix <span class="tip" title="${tipPrice}">ⓘ</span>`, `<span class="num">${fmt.num(t.price,6)}</span>`, `<span class="${d24class}">${fmt.pct(t.d24)}</span>`),
-    kpi(`Market Cap`, `<span class="num">${fmt.kmb(t.mc)}</span>`, t.rank? `Rang #${t.rank}` : ''),
-    kpi(`TVL <span class="tip" title="${tipTVL}">ⓘ</span>`, `<span class="num">${fmt.kmb(t.tvl)}</span>`, t.tvl_source? `<span class="small muted">${t.tvl_source}</span>`:''),
-    kpi(`MC / TVL <span class="tip" title="${tipMCTVL}">ⓘ</span>`, `<span class="${mc_tvl_class}">${t.mc_tvl!=null? t.mc_tvl.toFixed(2):'—'}</span>`, ''),
+    kpi(`Prix <span class="tip" title="${tipPrice}">ⓘ</span>`,
+        `<span class="num">${fmt.num(t.price,6)}</span>`,
+        `<span class="${d24class}">${fmt.pct(t.d24)}</span>`),
+    kpi(`Market Cap`,
+        `<span class="num">${fmt.kmb(t.mc)}</span>`,
+        t.rank? `Rang #${t.rank}` : ''),
+    kpi(`TVL <span class="tip" title="${tipTVL}">ⓘ</span>`,
+        `<span class="num">${fmt.kmb(t.tvl)}</span>`,
+        t.tvl_source? `<span class="small muted">${t.tvl_source}</span>`:''),
+    kpi(`MC / TVL <span class="tip" title="${tipMCTVL}">ⓘ</span>`,
+        `<span class="${mc_tvl_cls}">${t.mc_tvl!=null? t.mc_tvl.toFixed(2):'—'}</span>`, '', mcTvlDonut),
   ];
   document.getElementById('kpis').innerHTML = chips.join('');
 }
@@ -339,26 +411,40 @@ function setRSIChips(t){
   h4.textContent = (t.rsi_h4==null? 'H4 —'   : (t.rsi_h4<30? `H4 ${t.rsi_h4.toFixed(1)} (survendu)`   : (t.rsi_h4>70? `H4 ${t.rsi_h4.toFixed(1)} (suracheté)`   : `H4 ${t.rsi_h4.toFixed(1)}`)));
 }
 
-function setBlurb(t){
-  const el = document.getElementById('blurb');
-  if(t.blurb){ el.textContent = t.blurb; }
-  else{
-    const sec = t.sector ? `Secteur: ${t.sector}. ` : '';
-    const proto = t.protocol_name ? `Protocole: ${t.protocol_name}. ` : '';
-    const chains = (t.llama_chains && t.llama_chains.length)? `Chains: ${t.llama_chains.slice(0,3).join(', ')}.` : '';
-    const fallback = (sec||proto||chains) ? (sec+proto+chains) : 'Pas de descriptif.';
-    el.textContent = fallback;
+/* Badges */
+function badge(txt){ return `<span class="badge">${txt}</span>`; }
+function buildMetaTags(t){
+  const arr = [];
+  if(t.sector) arr.push(badge(t.sector));
+  if(Array.isArray(t.tags)) t.tags.forEach(x=> arr.push(badge(x)));
+  if(Array.isArray(t.llama_chains) && t.llama_chains.length){
+    arr.push(badge('Chains: ' + t.llama_chains.slice(0,4).join(', ')));
   }
+  document.getElementById('metaTags').innerHTML = arr.join('') || `<span class="muted small">Aucun tag</span>`;
 }
+
+/* Links (plus visibles + CMC + DeFiLlama) */
 function setLinks(t){
   const el = document.getElementById('links');
   const items = [];
-  if(t.website)    items.push(`<a class="iconBtn" href="${t.website}" target="_blank" rel="noopener" title="Site officiel">🌐</a>`);
-  if(t.twitter)    items.push(`<a class="iconBtn" href="${t.twitter}" target="_blank" rel="noopener" title="Fil X/Twitter">𝕏</a>`);
-  if(t.whitepaper) items.push(`<a class="iconBtn" href="${t.whitepaper}" target="_blank" rel="noopener" title="Whitepaper / doc technique">📄</a>`);
-  el.innerHTML = items.join('') || `<span class="muted small">Aucun lien</span>`;
+
+  if(t.website)    items.push(`<a class="iconBtn" href="${t.website}" target="_blank" rel="noopener"><span class="ic">🌐</span>Site</a>`);
+  if(t.twitter)    items.push(`<a class="iconBtn" href="${t.twitter}" target="_blank" rel="noopener"><span class="ic">𝕏</span>Twitter</a>`);
+  if(t.whitepaper) items.push(`<a class="iconBtn" href="${t.whitepaper}" target="_blank" rel="noopener"><span class="ic">📄</span>Whitepaper</a>`);
+
+  // CMC page si slug/name dispo
+  if(t.slug) items.push(`<a class="iconBtn" href="https://coinmarketcap.com/currencies/${t.slug}/" target="_blank" rel="noopener"><span class="ic">📊</span>CoinMarketCap</a>`);
+
+  // DeFiLlama page protocole si on a une source de type protocol:slug
+  if(t.tvl_source && t.tvl_source.startsWith('protocol:')){
+    const slug = t.tvl_source.split(':')[1];
+    items.push(`<a class="iconBtn" href="https://defillama.com/protocol/${slug}" target="_blank" rel="noopener"><span class="ic">🦙</span>DeFiLlama</a>`);
+  }
+
+  el.innerHTML = items.join('') || `<span class="muted small">Aucun lien détecté (site/X/whitepaper/CMC)</span>`;
 }
 
+/* Open details */
 function openDetails(t){
   ensurePanelOpen(true);
   document.getElementById('tName').textContent = (t.name || t.symbol || '—') + (t.symbol? ` (${t.symbol})`:'');
@@ -370,15 +456,13 @@ function openDetails(t){
   setBars(t);
   setRSIChips(t);
   setATH(t);
-  setBlurb(t);
-  document.getElementById('metaTags').innerHTML =
-    [t.sector? `<span class="badge">${t.sector}</span>`:'' ]
-      .concat((t.tags||[]).slice(0,3).map(x=>`<span class="badge">${x}</span>`))
-      .concat((t.llama_chains||[]).length? [`<span class="badge">Chains: ${(t.llama_chains||[]).slice(0,4).join(', ')}</span>`] : [])
-      .join('') || `<span class="muted small">Aucun tag</span>`;
+  document.getElementById('blurb').textContent =
+    t.blurb || (t.sector || t.protocol_name || (t.llama_chains||[]).length ? `${t.sector? 'Secteur: '+t.sector+'. ':''}${t.protocol_name? 'Protocole: '+t.protocol_name+'. ':''}${(t.llama_chains||[]).length? 'Chains: '+t.llama_chains.slice(0,3).join(', ')+'.':''}` : 'Pas de descriptif.');
+  buildMetaTags(t);
   setLinks(t);
 }
 
+/* Click binding */
 function bindRowClicks(list){
   Array.from(document.querySelectorAll('#tbody tr')).forEach(tr=>{
     tr.addEventListener('click', ()=>{
@@ -407,12 +491,13 @@ function bindRowClicks(list){
     if(!isDrag) return;
     const wrap = document.getElementById('layout');
     const rect = wrap.getBoundingClientRect();
-    const rightWidth = Math.min(Math.max(320, rect.right - e.clientX), 560);
+    const rightWidth = Math.min(Math.max(340, rect.right - e.clientX), 600);
     wrap.style.gridTemplateColumns = `1fr ${rightWidth}px`;
   });
   window.addEventListener('mouseup', ()=>{ isDrag=false; document.body.style.userSelect='auto'; });
 })();
 
+/* Main */
 async function main(){
   const res = await fetch('data.json', {cache:'no-cache'});
   const data = await res.json();
